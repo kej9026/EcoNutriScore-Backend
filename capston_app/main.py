@@ -38,7 +38,7 @@ def get_db():
 def index():
     return {"message": "Hello World"}
 
-# ---- ✅ DB 연결 확인용 ----
+# ---- DB 연결 확인용 ----
 @app.get("/db/health")
 def db_health():
     try:
