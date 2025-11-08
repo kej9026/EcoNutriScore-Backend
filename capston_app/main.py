@@ -12,18 +12,16 @@ from pydantic import BaseModel
 import capston_app.database as database
 import capston_app.models as models
 
-# ------------------------------
+# =========================================================
 # 환경 변수
-# ------------------------------
+# =========================================================
 load_dotenv()
-FOOD_API_KEY  = os.getenv("FOOD_API_KEY")      # 식품의약품안전처(foodsafetykorea) 키
-HACCP_API_KEY = os.getenv("HACCP_API_KEY")     # data.go.kr HACCP 이미지/표기정보 키 (추가)
-BASE_URL_FOOD  = "http://openapi.foodsafetykorea.go.kr/api"
-BASE_URL_HACCP = "https://apis.data.go.kr/B553748/CertImgListServiceV3"
+FOOD_API_KEY = os.getenv("FOOD_API_KEY")  # (옵션) 식약처 C005 바코드 조회용
+BASE_URL_FOOD = "http://openapi.foodsafetykorea.go.kr/api"
 
-# ------------------------------
+# =========================================================
 # 앱 수명주기: 테이블 자동 생성
-# ------------------------------
+# =========================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=database.engine)
@@ -31,9 +29,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# ------------------------------
+# =========================================================
 # DB 세션 DI
-# ------------------------------
+# =========================================================
 def get_db():
     db = database.SessionLocal()
     try:
@@ -41,9 +39,9 @@ def get_db():
     finally:
         db.close()
 
-# ------------------------------
+# =========================================================
 # 헬스체크
-# ------------------------------
+# =========================================================
 @app.get("/")
 def index():
     return {"message": "Hello World"}
@@ -59,19 +57,17 @@ def db_health():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
-# ------------------------------
+# =========================================================
 # 데모 Item
-# ------------------------------
+# =========================================================
 class ItemIn(BaseModel):
     name: str
-    price: float   # 금액 정밀도까지 필요하면 Numeric로 모델 변경 가능
+    price: float
 
 @app.post("/items")
 def create_item(payload: ItemIn, db: Session = Depends(get_db)):
     obj = models.Item(name=payload.name, price=payload.price)
-    db.add(obj)
-    db.commit()
-    db.refresh(obj)
+    db.add(obj); db.commit(); db.refresh(obj)
     return obj
 
 @app.get("/items/{item_id}")
@@ -81,15 +77,14 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Item not found")
     return obj
 
-# ------------------------------
-# 바코드 → 식약처 C005 조회 후 저장
-# ------------------------------
+# =========================================================
+# (옵션) 바코드 → 식약처 C005 조회 후 products 테이블 upsert
+# =========================================================
 @app.get("/barcode/{code}")
 def fetch_and_save_product(code: str, db: Session = Depends(get_db)):
     if not FOOD_API_KEY:
         raise HTTPException(500, "FOOD_API_KEY not set in .env")
 
-    # C005: 식품 바코드 제품 조회
     url = f"{BASE_URL_FOOD}/{FOOD_API_KEY}/C005/json/1/5/BAR_CD={code}"
     r = requests.get(url, timeout=10)
     if r.status_code != 200:
@@ -105,7 +100,6 @@ def fetch_and_save_product(code: str, db: Session = Depends(get_db)):
     company = row.get("BSSH_NM")
     expire  = row.get("POG_DAYCNT") or row.get("PRDLST_DCNM")
 
-    # upsert
     obj = db.query(models.Product).filter_by(barcode=code).first()
     if obj:
         obj.name, obj.company, obj.expire = name, company, expire
@@ -113,8 +107,7 @@ def fetch_and_save_product(code: str, db: Session = Depends(get_db)):
         obj = models.Product(barcode=code, name=name, company=company, expire=expire)
         db.add(obj)
 
-    db.commit()
-    db.refresh(obj)
+    db.commit(); db.refresh(obj)
     return {
         "barcode": obj.barcode,
         "name": obj.name,
@@ -130,107 +123,114 @@ def get_saved_product(barcode: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Not saved")
     return obj
 
-# ------------------------------
-# HACCP 제품 이미지/포장지표기 정보 (data.go.kr)
-#   문서: B553748/CertImgListServiceV3
-#   - /getCertImgListServiceV3
-#   - 파라미터는 기관 가이드에 따라 prdlstNm(제품명) 또는 barCd(바코드) 사용
-# ------------------------------
-def _call_haccp(params: dict):
-    """HACCP API 호출 헬퍼 (JSON)"""
-    if not HACCP_API_KEY:
-        raise HTTPException(500, "HACCP_API_KEY not set in .env")
+# =========================================================
+# 핵심: 바코드로 DB 조회 → 나트륨/당류/지방/첨가물/재활용율 가져오기
+# ---------------------------------------------------------
+# 예상 스키마(예시)
+#   - products(barcode PK, name ...)
+#   - nutrition_facts(barcode FK, sodium_mg, sugar_g, sat_fat_g, trans_fat_g, additives_cnt)
+#   - recycling_info(barcode FK, recycling_rate)
+# 실제 테이블/칼럼명이 다르면 아래 SQL의 컬럼/테이블만 맞춰서 수정하세요.
+# =========================================================
+PRODUCT_INFO_SQL = text("""
+    SELECT
+        f.barcode,
+        f.name,
 
-    # 공통 파라미터
-    base_params = {
-        "serviceKey": HACCP_API_KEY,  # 인코딩키 그대로 넣어도 requests가 처리
-        "returnType": "json",
-        "pageNo": params.pop("pageNo", 1),
-        "numOfRows": params.pop("numOfRows", 10),
+        -- 영양 성분
+        nf.sodium_mg       AS sodium_mg,
+        nf.sugar_g         AS sugar_g,
+        nf.sat_fat_g       AS sat_fat_g,
+        nf.trans_fat_g     AS trans_fat_g,
+        nf.additives_cnt   AS additives_cnt,
+
+        -- 재활용율
+        r.recycling_rate   AS recycling_rate
+
+    FROM foods f
+    LEFT JOIN nutrition_facts nf ON nf.barcode = f.barcode
+    LEFT JOIN recycling_info  r  ON r.barcode  = f.barcode
+    WHERE f.barcode = :barcode
+    LIMIT 1
+""")
+
+@app.get("/product-info/{barcode}")
+def get_product_info(barcode: str, db: Session = Depends(get_db)):
+    """
+    바코드로 제품 ‘영양 + 첨가물 + 재활용’ 정보를 한 번에 조회
+    """
+    row = db.execute(PRODUCT_INFO_SQL, {"barcode": barcode}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No record for barcode {barcode}")
+
+    # 내부 변수처럼 쓰고 싶으면 여기서 꺼내 쓰면 됩니다.
+    sodium_mg     = row.get("sodium_mg")
+    sugar_g       = row.get("sugar_g")
+    sat_fat_g     = row.get("sat_fat_g")
+    trans_fat_g   = row.get("trans_fat_g")
+    additives_cnt = row.get("additives_cnt")
+    recycling_rt  = row.get("recycling_rate")
+
+    # JSON 응답
+    return {
+        "barcode": row["barcode"],
+        "name": row["name"],
+        "nutrients": {
+            "sodium_mg":   sodium_mg,
+            "sugar_g":     sugar_g,
+            "sat_fat_g":   sat_fat_g,
+            "trans_fat_g": trans_fat_g,
+        },
+        "additives_cnt":  additives_cnt,
+        "recycling_rate": recycling_rt,
     }
-    base_params.update(params)
 
-    url = f"{BASE_URL_HACCP}/getCertImgListServiceV3"
-    resp = requests.get(url, params=base_params, timeout=10)
-    if resp.status_code != 200:
-        raise HTTPException(502, f"HACCP upstream error: {resp.status_code}")
-    return resp.json()
+# =========================================================
+# (선택) 점수 계산의 뼈대만 미리 달아두기 — 규칙 확정되면 로직 채워넣기
+# =========================================================
+@app.get("/product-score/{barcode}")
+def score_product(barcode: str, db: Session = Depends(get_db)):
+    row = db.execute(PRODUCT_INFO_SQL, {"barcode": barcode}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No record for barcode {barcode}")
 
-def _extract_haccp_rows(payload: dict):
-    """
-    기관 응답 스키마가 가끔 바뀌므로 키가 없을 때도 안전하게 파싱.
-    실제 키 이름은 문서의 필드명을 확인해 맞춰야 한다.
-    """
-    # 대표적으로 'body' → 'items' → 'item' 구조를 많이 사용함
-    body = (payload.get("body") or
-            payload.get("response", {}).get("body") or
-            payload.get("getCertImgListServiceV3", {}).get("body") or {})
-    items = body.get("items") or body.get("item") or []
-    if isinstance(items, dict):
-        items = items.get("item", []) or [items]
-    return items
+    # 예: 간단한 예시 규칙 (엑셀 기준 확정되면 교체)
+    def score_nutrient(value, thresholds):
+        # thresholds = [(cut, score), ...] 큰 값일수록 감점이라면 내림차순
+        for cut, sc in thresholds:
+            if value is None:  # 값없음 처리
+                return 0
+            if value >= cut:
+                return sc
+        return 0
 
-@app.get("/haccp/search")
-def haccp_search_by_name(
-    name: str = Query(..., description="제품명(부분검색)"),
-    page: int = 1,
-    size: int = 10,
-    db: Session = Depends(get_db),
-):
-    """
-    제품명으로 HACCP 이미지/표기정보 조회 → 일부 필드만 추려서 반환
-    """
-    payload = _call_haccp({"prdlstNm": name, "pageNo": page, "numOfRows": size})
-    items = _extract_haccp_rows(payload)
+    sodium_score = score_nutrient(row.get("sodium_mg"), [(600, -40), (400, -25), (200, -10)])
+    sugar_score  = score_nutrient(row.get("sugar_g"),   [(50,  -50), (25,  -25), (10,  -10)])
+    fat_score    = score_nutrient((row.get("sat_fat_g") or 0), [(5, -25), (3, -10)])
+    trans_score  = score_nutrient((row.get("trans_fat_g") or 0), [(0.1, -50)])
+    add_score    = score_nutrient((row.get("additives_cnt") or 0), [(10, -10), (5, -5), (1, -1)])
+    # 재활용 가점(예시): 95=+10, 85=+8, 60=+6, 20=+2, 복합재질(<=10)=+1
+    rec = row.get("recycling_rate") or 0
+    if rec >= 95: rec_score = +10
+    elif rec >= 85: rec_score = +8
+    elif rec >= 60: rec_score = +6
+    elif rec >= 20: rec_score = +2
+    elif rec > 0: rec_score = +1
+    else: rec_score = 0
 
-    results = []
-    for it in items:
-        # 문서의 실제 필드명에 맞춰 get 키를 바꿔 주면 됨
-        results.append({
-            "barcode": it.get("barCd") or it.get("BAR_CD"),
-            "product_name": it.get("prdlstNm") or it.get("PRDLST_NM"),
-            "manufacturer": it.get("manufacture") or it.get("BSSH_NM") or it.get("manufacturer"),
-            "img_url": it.get("imgUrl") or it.get("IMG_URL"),
-            "pack_img_url": it.get("packImgUrl") or it.get("PACK_IMG_URL"),
-            "meta_img_url": it.get("metaImgUrl") or it.get("META_IMG_URL"),
-        })
-    return {"count": len(results), "items": results}
+    total = 100 + sodium_score + sugar_score + fat_score + trans_score + add_score + rec_score
 
-@app.get("/haccp/by-barcode/{code}")
-def haccp_by_barcode(code: str, db: Session = Depends(get_db)):
-    """
-    바코드로 HACCP 이미지/표기정보 조회 → DB에 upsert 저장 후 반환
-    """
-    payload = _call_haccp({"barCd": code, "pageNo": 1, "numOfRows": 1})
-    items = _extract_haccp_rows(payload)
-    if not items:
-        raise HTTPException(404, f"No HACCP info for barcode {code}")
-
-    it = items[0]
-    record = dict(
-        barcode      = it.get("barCd") or it.get("BAR_CD") or code,
-        product_name = it.get("prdlstNm") or it.get("PRDLST_NM"),
-        manufacturer = it.get("manufacture") or it.get("BSSH_NM") or it.get("manufacturer"),
-        img_url      = it.get("imgUrl") or it.get("IMG_URL"),
-        pack_img_url = it.get("packImgUrl") or it.get("PACK_IMG_URL"),
-        meta_img_url = it.get("metaImgUrl") or it.get("META_IMG_URL"),
-    )
-
-    # upsert 저장
-    row = (
-        db.query(models.ProductHaccp)
-        .filter_by(barcode=record["barcode"], product_name=record["product_name"])
-        .first()
-    )
-    if row:
-        row.manufacturer = record["manufacturer"]
-        row.img_url      = record["img_url"]
-        row.pack_img_url = record["pack_img_url"]
-        row.meta_img_url = record["meta_img_url"]
-    else:
-        row = models.ProductHaccp(**record)
-        db.add(row)
-
-    db.commit()
-    db.refresh(row)
-    return row
+    return {
+        "barcode": row["barcode"],
+        "name": row["name"],
+        "scores": {
+            "base": 100,
+            "sodium": sodium_score,
+            "sugar": sugar_score,
+            "sat_fat": fat_score,
+            "trans_fat": trans_score,
+            "additives": add_score,
+            "recycling": rec_score,
+        },
+        "total": total
+    }
