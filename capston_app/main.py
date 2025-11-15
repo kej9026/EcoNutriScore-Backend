@@ -4,7 +4,7 @@ import os
 import requests
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
@@ -12,11 +12,16 @@ from pydantic import BaseModel
 import capston_app.database as database
 import capston_app.models as models
 
+
+# 서버 재시작 전 어딘가 한 번 호출 (예: 앱 시작 직후)
+from capston_app.database import engine
+engine.dispose()
+
 # =========================================================
-# 환경 변수
+# 환경 변수 (옵션: 식약처 C005 바코드 조회용)
 # =========================================================
 load_dotenv()
-FOOD_API_KEY = os.getenv("FOOD_API_KEY")  # (옵션) 식약처 C005 바코드 조회용
+FOOD_API_KEY = os.getenv("FOOD_API_KEY")
 BASE_URL_FOOD = "http://openapi.foodsafetykorea.go.kr/api"
 
 # =========================================================
@@ -46,16 +51,39 @@ def get_db():
 def index():
     return {"message": "Hello World"}
 
-@app.get("/db/health")
+from fastapi.responses import PlainTextResponse
+import json
+
+@app.get("/db/health", response_class=PlainTextResponse)
 def db_health():
     try:
         with database.engine.connect() as conn:
             one     = conn.execute(text("SELECT 1")).scalar_one()
             db_name = conn.execute(text("SELECT DATABASE()")).scalar()
             version = conn.execute(text("SELECT VERSION()")).scalar()
-        return {"ok": True, "select_1": one, "database": db_name, "version": version}
+            vars_row = conn.execute(text(
+                "SELECT @@character_set_client AS client, "
+                "@@character_set_connection AS connection, "
+                "@@character_set_results AS results"
+            )).mappings().first()
+        
+        # RowMapping → dict 변환
+        charset = dict(vars_row) if vars_row is not None else {}
+
+        body = {
+            "ok": True,
+            "select_1": int(one),
+            "database": db_name,
+            "version": str(version),
+            "charset": charset,
+        }
+
+        # dict → JSON 문자열 변환 후 문자열 결합
+        return json.dumps(body, ensure_ascii=False)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
+
 
 # =========================================================
 # 데모 Item
@@ -124,29 +152,23 @@ def get_saved_product(barcode: str, db: Session = Depends(get_db)):
     return obj
 
 # =========================================================
-# 핵심: 바코드로 DB 조회 → 나트륨/당류/지방/첨가물/재활용율 가져오기
-# ---------------------------------------------------------
-# 예상 스키마(예시)
-#   - products(barcode PK, name ...)
-#   - nutrition_facts(barcode FK, sodium_mg, sugar_g, sat_fat_g, trans_fat_g, additives_cnt)
-#   - recycling_info(barcode FK, recycling_rate)
-# 실제 테이블/칼럼명이 다르면 아래 SQL의 컬럼/테이블만 맞춰서 수정하세요.
+# 공통 조회 SQL (제품 기본 + 영양 + 포장재 재질)
 # =========================================================
 PRODUCT_INFO_SQL = text("""
     SELECT
         f.barcode,
         f.name,
+        f.prdlst_report_no    AS report_no,
+        f.image_url           AS image_url,
+        f.category_code       AS category_code,
 
-        -- 영양 성분
-        nf.sodium_mg       AS sodium_mg,
-        nf.sugar_g         AS sugar_g,
-        nf.sat_fat_g       AS sat_fat_g,
-        nf.trans_fat_g     AS trans_fat_g,
-        nf.additives_cnt   AS additives_cnt,
+        nf.sodium_mg          AS sodium_mg,
+        nf.sugar_g            AS sugar_g,
+        nf.sat_fat_g          AS sat_fat_g,
+        nf.trans_fat_g        AS trans_fat_g,
+        nf.additives_cnt      AS additives_cnt,
 
-        -- 재활용율
-        r.recycling_rate   AS recycling_rate
-
+        r.material            AS packaging_material
     FROM foods f
     LEFT JOIN nutrition_facts nf ON nf.barcode = f.barcode
     LEFT JOIN recycling_info  r  ON r.barcode  = f.barcode
@@ -154,83 +176,151 @@ PRODUCT_INFO_SQL = text("""
     LIMIT 1
 """)
 
-@app.get("/product-info/{barcode}")
-def get_product_info(barcode: str, db: Session = Depends(get_db)):
-    """
-    바코드로 제품 ‘영양 + 첨가물 + 재활용’ 정보를 한 번에 조회
-    """
-    row = db.execute(PRODUCT_INFO_SQL, {"barcode": barcode}).mappings().first()
-    if not row:
+# (선택) ingredients 테이블이 있을 경우만 조회: ingredients(barcode, name)
+INGREDIENTS_SQL = text("""
+    SELECT name FROM ingredients WHERE barcode = :barcode ORDER BY 1
+""")
+
+def fetch_ingredients_safe(db: Session, barcode: str):
+    try:
+        rows = db.execute(INGREDIENTS_SQL, {"barcode": barcode}).fetchall()
+        return [r[0] for r in rows]
+    except Exception:
+        # 테이블이 없거나 칼럼이 없는 경우 빈 리스트
+        return []
+
+def fetch_serving_size_safe(db: Session, barcode: str):
+    # nutrition_facts.serving_size 칼럼이 있다면 읽고, 없으면 None
+    try:
+        row = db.execute(
+            text("SELECT serving_size FROM nutrition_facts WHERE barcode=:b LIMIT 1"),
+            {"b": barcode},
+        ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+# =========================================================
+# DTO 형태로 반환 (요구된 키 그대로)
+# =========================================================
+@app.get("/product-dto/{barcode}")
+def get_product_dto(barcode: str, db: Session = Depends(get_db)):
+    base = db.execute(PRODUCT_INFO_SQL, {"barcode": barcode}).mappings().first()
+    if not base:
         raise HTTPException(status_code=404, detail=f"No record for barcode {barcode}")
 
-    # 내부 변수처럼 쓰고 싶으면 여기서 꺼내 쓰면 됩니다.
-    sodium_mg     = row.get("sodium_mg")
-    sugar_g       = row.get("sugar_g")
-    sat_fat_g     = row.get("sat_fat_g")
-    trans_fat_g   = row.get("trans_fat_g")
-    additives_cnt = row.get("additives_cnt")
-    recycling_rt  = row.get("recycling_rate")
+    ingredients = fetch_ingredients_safe(db, barcode)
+    serving_size = fetch_serving_size_safe(db, barcode)
 
-    # JSON 응답
+    # 표준 키 그대로 맞춰서 반환
     return {
-        "barcode": row["barcode"],
-        "name": row["name"],
-        "nutrients": {
-            "sodium_mg":   sodium_mg,
-            "sugar_g":     sugar_g,
-            "sat_fat_g":   sat_fat_g,
-            "trans_fat_g": trans_fat_g,
-        },
-        "additives_cnt":  additives_cnt,
-        "recycling_rate": recycling_rt,
+        "barcode":             base["barcode"],
+        "name":                base["name"],
+        "sodium_mg":           base.get("sodium_mg"),
+        "sugar_g":             base.get("sugar_g"),
+        "sat_fat_g":           base.get("sat_fat_g"),
+        "trans_fat_g":         base.get("trans_fat_g"),
+        "packaging_material":  base.get("packaging_material"),
+        "report_no":           base.get("report_no"),
+        "ingredients":         ingredients,     # 테이블 없으면 []
+        "image_url":           base.get("image_url"),
+        "category_code":       base.get("category_code"),
+        "serving_size":        serving_size,    # 칼럼 없으면 None
     }
 
 # =========================================================
-# (선택) 점수 계산의 뼈대만 미리 달아두기 — 규칙 확정되면 로직 채워넣기
+# 점수 계산 (네가 정의한 규칙 반영, 포장재는 재질명 기반)
 # =========================================================
-@app.get("/product-score/{barcode}")
-def score_product(barcode: str, db: Session = Depends(get_db)):
-    row = db.execute(PRODUCT_INFO_SQL, {"barcode": barcode}).mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail=f"No record for barcode {barcode}")
-
-    # 예: 간단한 예시 규칙 (엑셀 기준 확정되면 교체)
-    def score_nutrient(value, thresholds):
-        # thresholds = [(cut, score), ...] 큰 값일수록 감점이라면 내림차순
-        for cut, sc in thresholds:
-            if value is None:  # 값없음 처리
-                return 0
-            if value >= cut:
-                return sc
+def score_range(value, bands):
+    if value is None:
         return 0
+    for low, high, sc in bands:
+        if value >= low and value < high:
+            return sc
+    return 0
 
-    sodium_score = score_nutrient(row.get("sodium_mg"), [(600, -40), (400, -25), (200, -10)])
-    sugar_score  = score_nutrient(row.get("sugar_g"),   [(50,  -50), (25,  -25), (10,  -10)])
-    fat_score    = score_nutrient((row.get("sat_fat_g") or 0), [(5, -25), (3, -10)])
-    trans_score  = score_nutrient((row.get("trans_fat_g") or 0), [(0.1, -50)])
-    add_score    = score_nutrient((row.get("additives_cnt") or 0), [(10, -10), (5, -5), (1, -1)])
-    # 재활용 가점(예시): 95=+10, 85=+8, 60=+6, 20=+2, 복합재질(<=10)=+1
-    rec = row.get("recycling_rate") or 0
-    if rec >= 95: rec_score = +10
-    elif rec >= 85: rec_score = +8
-    elif rec >= 60: rec_score = +6
-    elif rec >= 20: rec_score = +2
-    elif rec > 0: rec_score = +1
-    else: rec_score = 0
+def score_additives(cnt):
+    if cnt is None:
+        return 0
+    return max(0, 100 - int(cnt) * 10)
 
-    total = 100 + sodium_score + sugar_score + fat_score + trans_score + add_score + rec_score
+def score_trans_fat(val):
+    if val is None:
+        return 0
+    if val == 0:
+        return 25
+    if val >= 0.1:
+        return -50
+    return 0
 
-    return {
-        "barcode": row["barcode"],
-        "name": row["name"],
-        "scores": {
-            "base": 100,
-            "sodium": sodium_score,
-            "sugar": sugar_score,
-            "sat_fat": fat_score,
-            "trans_fat": trans_score,
-            "additives": add_score,
-            "recycling": rec_score,
-        },
-        "total": total
+def score_packaging_from_material(material: str):
+    if not material:
+        return 0
+    key = material.strip().lower()
+    aliases = {
+        "유리": "glass", "glass": "glass",
+        "알루미늄": "aluminum", "알루미늄 캔": "aluminum",
+        "aluminum": "aluminum", "aluminium": "aluminum",
+        "pet": "pet", "pet 플라스틱": "pet",
+        "pp": "pp", "pp 플라스틱": "pp",
+        "ps": "ps", "ps 플라스틱": "ps",
+        "복합재질": "composite", "복합": "composite",
+        "composite": "composite", "multi": "composite",
     }
+    norm = aliases.get(key)
+    if norm is None:
+        if "유리" in key or "glass" in key: norm = "glass"
+        elif "알루" in key or "alumi" in key: norm = "aluminum"
+        elif key.startswith("pet"): norm = "pet"
+        elif key.startswith("pp"):  norm = "pp"
+        elif key.startswith("ps"):  norm = "ps"
+        elif "복합" in key or "compos" in key: norm = "composite"
+
+    if norm == "glass":     return 95
+    if norm == "aluminum":  return 95
+    if norm == "pet":       return 85
+    if norm == "pp":        return 60
+    if norm == "ps":        return 20
+    if norm == "composite": return 10
+    return 0
+
+@app.get("/product-score/{barcode}")
+def product_score(barcode: str, db: Session = Depends(get_db)):
+    row = db.execute(PRODUCT_INFO_SQL, {"barcode": barcode}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No record for barcode {barcode}")
+
+    sodium_score = score_range(
+        row.get("sodium_mg"),
+        [(0, 50, 100), (50, 120, 85), (120, 200, 70), (200, 400, 50), (400, 600, 25), (600, float("inf"), 0)],
+    )
+    sugar_score = score_range(
+        row.get("sugar_g"),
+        [(0, 1, 100), (1, 5, 85), (5, 10, 70), (10, 15, 50), (15, 22.5, 25), (22.5, float("inf"), 0)],
+    )
+    sat_fat_score = score_range(
+        row.get("sat_fat_g"),
+        [(0, 1, 40), (1, 3, 25), (3, 5, 10), (5, float("inf"), -15)],
+    )
+    trans_fat_score = score_trans_fat(row.get("trans_fat_g"))
+    additives_score = score_additives(row.get("additives_cnt"))
+    packaging_score = score_packaging_from_material(row.get("packaging_material"))
+
+    scores = {
+        "sodium":    sodium_score,
+        "sugar":     sugar_score,
+        "sat_fat":   sat_fat_score,
+        "trans_fat": trans_fat_score,
+        "additives": additives_score,
+        "packaging": packaging_score,
+    }
+    total = sum(scores.values())
+    missing = {
+        "sodium_mg":          row.get("sodium_mg")          is None,
+        "sugar_g":            row.get("sugar_g")            is None,
+        "sat_fat_g":          row.get("sat_fat_g")          is None,
+        "trans_fat_g":        row.get("trans_fat_g")        is None,
+        "additives_cnt":      row.get("additives_cnt")      is None,
+        "packaging_material": row.get("packaging_material") is None,
+    }
+    return {"barcode": row["barcode"], "name": row["name"], "scores": scores, "total": total, "missing_fields": missing}
