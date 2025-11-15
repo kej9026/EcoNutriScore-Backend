@@ -4,9 +4,14 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 
 # -------------------------------------------------------------------
-# 0. 공통 타입 정의(수정 예정)
+# 0. 공통 타입 정의
 # -------------------------------------------------------------------
 Grade = Literal['A', 'B', 'C', 'D', 'E']
+
+# 바코드 인식결과
+class BarcodeScanResult(BaseModel):
+    barcode: str
+    type: str
 
 # -------------------------------------------------------------------
 # 1. 분석 엔진 입력 DTO (Input)

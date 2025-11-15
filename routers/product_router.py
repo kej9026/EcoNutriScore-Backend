@@ -1,3 +1,14 @@
+# +++ 바코드 스캔 라이브러리 임포트 +++
+import io
+from pyzbar.pyzbar import decode
+from PIL import Image
+
+# +++ FastAPI 파일 업로드 및 pydantic 기본 모델 임포트 +++
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from pydantic import BaseModel  # BaseModel 임포트 확인
+from typing import Optional     # Optional 임포트 확인
+
+
 #API 엔드포인트
 from fastapi import APIRouter, Depends
 from services.total_score_service import TotalScoreService
@@ -10,12 +21,38 @@ from services.packaging_analysis_service import PackagingAnalysisService
 from services.additives_analysis_service import AdditivesAnalysisService
 from services.nutrition_analysis_service import NutritionAnalysisService
 
+from services.barcode_scanning_service import BarcodeScanningService
 from models.dtos import AnalysisScoresDTO, GradeResult, UserPrioritiesDTO, PackagingScore, AdditivesScore, NutritionScore
 from services.product_evaluation_service import ProductEvaluationService
 from services.total_score_service import TotalScoreService
 
 router = APIRouter()
 
+# -------------------------------------------------------------------
+# 0단계: 바코드 이미지 스캔 (이미지 -> 바코드 번호)
+# -------------------------------------------------------------------
+@router.post("/scan-barcode-image", response_model=BarcodeScanResult)
+async def scan_barcode_from_image(
+    file: UploadFile = File(...),
+    # +++ BarcodeScanningService를 의존성 주입(DI) 받음 +++
+    scanner_service: BarcodeScanningService = Depends(BarcodeScanningService)
+):
+    """
+    [0단계] 프론트엔드에서 이미지 파일을 업로드받아 스캐너 서비스로 넘깁니다.
+    라우터는 파일 I/O와 HTTP 요청 검사만 담당합니다.
+    """
+    
+    # 1. 라우터의 역할: HTTP 요청 유효성 검사 (MIME 타입)
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="이미지 파일만 업로드할 수 있습니다.")
+
+    # 2. 라우터의 역할: 파일 내용 읽기 (I/O)
+    contents = await file.read()
+    
+    # 3. 서비스의 역할: 실제 로직 수행 (서비스에 위임)
+    #    서비스에서 발생한 HTTPException은 FastAPI가 자동으로 처리해줌
+    return scanner_service.scan_image_to_barcode(contents)
+    
 # -------------------------------------------------------------------
 # 1단계: 3가지 점수 분석 (DB/API 조회 및 분석)
 # -------------------------------------------------------------------
