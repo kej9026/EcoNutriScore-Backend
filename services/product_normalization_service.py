@@ -1,8 +1,7 @@
 # services/product_normalization_service.py
 
 from models.dtos import (
-    ProductDTO, RawProductAPIDTO, 
-    PackagingDTO, AdditiveDTO, NutritionDTO
+    ProductDTO, RawProductAPIDTO
 )
 # services/product_normalization_service.py
 

@@ -1,32 +1,26 @@
-# +++ 바코드 스캔 라이브러리 임포트 +++
-import io
-from pyzbar.pyzbar import decode
-from PIL import Image
-
-# +++ FastAPI 파일 업로드 및 pydantic 기본 모델 임포트 +++
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
-from pydantic import BaseModel  # BaseModel 임포트 확인
-from typing import Optional     # Optional 임포트 확인
-
-
-#API 엔드포인트
-from fastapi import APIRouter, Depends
-from services.total_score_service import TotalScoreService
-from models.dtos import (
-    ProductDTO, GradeResult, UserPrioritiesDTO,
-    PackagingScore, AdditivesScore, NutritionScore
+# +++ FastAPI 핵심 모듈 임포트 +++
+from fastapi import (
+    APIRouter, Depends, UploadFile, 
+    File, HTTPException
 )
-#임시
-from services.packaging_analysis_service import PackagingAnalysisService
-from services.additives_analysis_service import AdditivesAnalysisService
-from services.nutrition_analysis_service import NutritionAnalysisService
 
+# +++ 서비스 임포트 +++
 from services.barcode_scanning_service import BarcodeScanningService
-from models.dtos import AnalysisScoresDTO, GradeResult, UserPrioritiesDTO, PackagingScore, AdditivesScore, NutritionScore
 from services.product_evaluation_service import ProductEvaluationService
 from services.total_score_service import TotalScoreService
 
-router = APIRouter()
+# +++ DTO 임포트 (dtos.py 파일에 정의된 모델 사용) +++
+from models.dtos import (
+    BarcodeScanResult,       # 0단계 응답
+    AnalysisScoresDTO,       # 1단계 응답
+    GradeCalculationRequest, # 2단계 요청
+    GradeResult              # 2단계 응답
+)
+
+router = APIRouter(
+    prefix="/products",
+    tags=["Products API"]
+)
 
 # -------------------------------------------------------------------
 # 0단계: 바코드 이미지 스캔 (이미지 -> 바코드 번호)
@@ -34,23 +28,22 @@ router = APIRouter()
 @router.post("/scan-barcode-image", response_model=BarcodeScanResult)
 async def scan_barcode_from_image(
     file: UploadFile = File(...),
-    # +++ BarcodeScanningService를 의존성 주입(DI) 받음 +++
     scanner_service: BarcodeScanningService = Depends(BarcodeScanningService)
 ):
     """
-    [0단계] 프론트엔드에서 이미지 파일을 업로드받아 스캐너 서비스로 넘깁니다.
-    라우터는 파일 I/O와 HTTP 요청 검사만 담당합니다.
+    [0단계] 프론트엔드에서 이미지 파일을 업로드받아 바코드를 스캔합니다.
+    (라우터는 I/O 및 HTTP 검사, 서비스는 실제 로직 담당)
     """
     
-    # 1. 라우터의 역할: HTTP 요청 유효성 검사 (MIME 타입)
-    if not file.content_type.startswith("image/"):
+    # 1. HTTP 요청 유효성 검사 (MIME 타입)
+    if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="이미지 파일만 업로드할 수 있습니다.")
 
-    # 2. 라우터의 역할: 파일 내용 읽기 (I/O)
+    # 2. 파일 내용 읽기 (I/O)
     contents = await file.read()
     
-    # 3. 서비스의 역할: 실제 로직 수행 (서비스에 위임)
-    #    서비스에서 발생한 HTTPException은 FastAPI가 자동으로 처리해줌
+    # 3. 실제 로직은 서비스에 위임
+    # (서비스에서 404/422 HTTPException이 발생할 수 있음)
     return scanner_service.scan_image_to_barcode(contents)
     
 # -------------------------------------------------------------------
@@ -62,42 +55,36 @@ def get_analysis_scores(
     eval_service: ProductEvaluationService = Depends(ProductEvaluationService)
 ):
     """
-    바코드로 3가지 분석 점수(포장재, 첨가물, 영양)를 조회/생성
+    [1단계] 바코드 번호(str)를 받아 3가지 분석 점수를 반환합니다.
+    (DB/캐시 조회 또는 신규 생성 파이프라인 실행)
     """
-    # ProductEvaluationService는 3가지 점수만 반환
+    # ProductEvaluationService는 3대 분석 점수(DTO)만 반환
     return eval_service.get_analysis_scores(barcode)
 
 # -------------------------------------------------------------------
 # 2단계: 최종 점수 계산 (실시간 가중치 적용)
 # -------------------------------------------------------------------
-# 프론트가 1단계 결과와 사용자 입력을 합쳐서 보낼 Body DTO
-class ScoreRequest(BaseModel):
-    packaging: PackagingScore
-    additives: AdditivesScore
-    nutrition: NutritionScore
-    priorities: Optional[UserPrioritiesDTO] = None
-
-@router.post("/calculate-score", response_model=GradeResult)
-def calculate_final_score(
-    request: ScoreRequest,
-    total_score_service: TotalScoreService = Depends(TotalScoreService)
+@router.post("/calculate-grade", response_model=GradeResult)
+def calculate_final_grade(
+    # dtos.py에 정의된 '2단계 요청 DTO'를 사용
+    request_data: GradeCalculationRequest,
+    total_scorer: TotalScoreService = Depends(TotalScoreService)
 ):
     """
-    3가지 점수와 가중치를 입력받아 최종 점수와 등급을 계산
+    [2단계] 1단계 결과(AnalysisScoresDTO)와 
+    사용자 가중치(UserPrioritiesDTO)를 받아 
+    최종 등급(GradeResult)을 계산합니다.
     """
-    # TotalScoreService가 최종 점수와 등급을 반환
-    final_total, final_grade = total_score_service.calculate_final_score(
-        request.packaging,
-        request.additives,
-        request.nutrition,
-        request.priorities
+    
+    # 1. 요청 DTO에서 3대 점수와 가중치 추출
+    analysis_scores = request_data.scores
+    user_priorities = request_data.priorities
+    
+    # 2. TotalScoreService에 계산 위임
+    # (total_score 함수가 GradeResult DTO를 직접 반환한다고 가정)
+    final_result = total_scorer.total_score(
+        scores=analysis_scores,
+        priorities=user_priorities
     )
     
-    return GradeResult(
-        total=final_total,
-        grade=final_grade,
-        packaging=request.packaging,
-        additives=request.additives,
-        nutrition=request.nutrition
-    )
-    
+    return final_result

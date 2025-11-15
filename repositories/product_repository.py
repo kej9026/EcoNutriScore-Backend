@@ -1,17 +1,23 @@
 # repositories/product_repository.py
 
+from typing import Optional
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 from redis import Redis # Redis 클라이언트 (main.py에서 주입)
 import requests
 import json
+import os
 
-from models.dtos import GradeResult, RawProductAPIDTO # (dtos.py에 RawProductAPIDTO 필요)
-# (main.py의 DB 세션 가져오는 함수)
+from models.dtos import GradeResult, RawProductAPIDTO 
 from database import get_db 
-# (main.py의 API Key/URL 설정)
-from config import FOOD_API_KEY, BASE_URL_FOOD 
+from dotenv import load_dotenv
 
+# --- .env 파일 로드 ---
+load_dotenv() # <-- 2. .env 파일 로드 실행
+
+# --- API 키를 .env에서 직접 읽어옴 ---
+FOOD_API_KEY = os.getenv("FOOD_API_KEY") 
+BASE_URL_FOOD = "http://openapi.foodsafetykorea.go.kr/api"
 # repositories/product_repository.py
 
 class ProductRepository:
@@ -19,7 +25,7 @@ class ProductRepository:
         self.db = db
         # (API Key, URL 등은 config 파일에서 로드)
 
-    def get_raw_data(self, barcode: str) -> RawProductDBRecord:
+    def get_raw_data(self, barcode: str) -> RawProductAPIDTO:
         """
         바코드로 Raw 데이터를 가져오는 단일 메서드
         (DB 조회 -> 없으면 API 호출 -> DB 저장)
@@ -40,15 +46,15 @@ class ProductRepository:
         self._save_raw_to_db(api_data_dto)
         
         # 4. API 결과를 DB 조회 DTO 형식으로 변환하여 반환
-        return RawProductDBRecord.model_validate(api_data_dto)
+        return RawProductAPIDTO.model_validate(api_data_dto)
 
-    def _get_raw_from_db(self, barcode: str) -> Optional[RawProductDBRecord]:
+    def _get_raw_from_db(self, barcode: str) -> Optional[RawProductAPIDTO]:
         """DB에서 Raw 데이터(List 2)를 조회"""
         # (main.py의 PRODUCT_INFO_SQL 쿼리 실행 로직)
         # ...
         # row = self.db.execute(PRODUCT_INFO_SQL, ...).first()
         # if row:
-        #    return RawProductDBRecord.model_validate(row)
+        #    return RawProductAPIDTO.model_validate(row)
         return None # (임시)
 
     def _fetch_raw_from_api(self, barcode: str) -> RawProductAPIDTO:

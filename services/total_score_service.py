@@ -1,4 +1,4 @@
-#실제 점수 통합 및 $\text{AHP}$ 로직 구현
+#실제 점수 통합 및 AHP 로직 구현
 from typing import Optional, Tuple
 from fastapi import Depends
 from repositories.score_rule_repository import ScoreRuleRepository

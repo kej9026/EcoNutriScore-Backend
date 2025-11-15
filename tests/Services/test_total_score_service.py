@@ -1,7 +1,7 @@
 import pytest
-from Models.dtos import PackagingScore, AdditivesScore, NutritionScore, UserPrioritiesDTO
-from Services.total_score_service import TotalScoreService
-from Repositories.score_rule_repository import ScoreRuleRepository
+from models.dtos import PackagingScore, AdditivesScore, NutritionScore, UserPrioritiesDTO
+from services.total_score_service import TotalScoreService
+from repositories.score_rule_repository import ScoreRuleRepository
 
 # -------------------------------------------------------------------
 # 1. 가짜(Mock) Repository 생성
