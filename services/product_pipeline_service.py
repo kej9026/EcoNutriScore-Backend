@@ -3,7 +3,7 @@ from fastapi import Depends
 from models.dtos import (
     AnalysisScoresDTO, ProductDTO, RawProductAPIDTO
 )
-from repositories.product_repository import ProductRepository
+from repositories.food_repository import ProductRepository
 from services.product_normalization_service import ProductNormalizationService
 #from services.packaging_analysis_service import PackagingAnalysisService
 #from services.additives_analysis_service import AdditivesAnalysisService

@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
-from models.models import ScanHistory 
 from models.dtos import ScanHistoryDTO 
+import services.history_service as history_service
 
 router = APIRouter(
     prefix="/history",  
@@ -19,12 +19,8 @@ def get_my_scan_history(
     """
     현재 사용자의 최근 스캔 기록을 N개 반환
     """
-    history_records = (
-        db.query(ScanHistory)
-        .filter(ScanHistory.user_id == user_id)
-        .order_by(ScanHistory.scanned_at.desc())
-        .limit(20)
-        .all()
+    history_records = history_service.get_user_scan_history(
+        db=db, user_id=user_id
     )
     
     # ORM 모델 리스트를 Pydantic DTO 리스트로 변환

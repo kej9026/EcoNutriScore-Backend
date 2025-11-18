@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, UniqueConstraint, Numeric
+from sqlalchemy import Column, ForeignKey, Integer, String, Float, UniqueConstraint, Numeric
 from database import Base
 
 
@@ -23,3 +23,17 @@ class ProductHaccp(Base):
         UniqueConstraint("barcode", "product_name", name="uq_barcode_product"),
     )
     
+class ScanHistory(Base):
+    __tablename__ = "scan_histories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    prdlst_report_no = Column(String, index=True)
+    prdlst_nm = Column(String)
+    total_score = Column(Integer)
+    grade = Column(String(1))
+    
+    # [신규] 가중치 저장을 위한 컬럼 추가
+    pkg_weight = Column(Float)
+    add_weight = Column(Float)
+    nut_weight = Column(Float)
