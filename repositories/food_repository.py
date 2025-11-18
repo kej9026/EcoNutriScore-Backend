@@ -5,8 +5,6 @@ from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text # Raw SQL 사용을 위해 text 임포트
 from redis import Redis 
-import requests
-import json
 import os
 
 from models.dtos import GradeResult, RawProductAPIDTO 
@@ -26,7 +24,7 @@ class FoodRepository:
         # 생성자에서 주입받은 DB 세션을 self.db에 저장
         self.db = db
         # (API Key, URL 등은 config 파일에서 로드)
-        
+
     def get_food_by_report_no(self, prdlst_report_no: str) -> Optional[RawProductAPIDTO]:
         """
         제품 보고 번호(prdlst_report_no)로 DB에서 제품 정보를 조회합니다.
@@ -64,22 +62,30 @@ class FoodRepository:
     def get_raw_data(self, barcode: str) -> RawProductAPIDTO:
         """
         바코드로 Raw 데이터를 가져오는 단일 메서드
-        (DB 조회 -> 없으면 API 호출 -> DB 저장)
+        (캐시 조회->DB 조회 -> 없으면 API 호출 -> DB 저장)
         """
+        # 캐시조회
+        cached_data = self.cache.get(f"product:{barcode}")
+        if cached_data:
+            print(f"Cache Hit from REDIS for {barcode}")
+            # JSON 문자열을 DTO로 변환
+            return RawProductAPIDTO.model_validate_json(cached_data)
         
-        # 1. DB 조회 (main.py의 PRODUCT_INFO_SQL 사용)
+        #DB 조회 (main.py의 PRODUCT_INFO_SQL 사용)
         db_data = self._get_raw_from_db(barcode)
         
         if db_data:
             print(f"Cache Hit from DB for {barcode}")
+            self.cache.setex(f"product:{barcode}", 3600, db_data.model_dump_json())
             return db_data # DB에 있으면 바로 반환
 
         # 2. DB에 없음 -> API 호출
         print(f"Cache Miss. Fetching from API for {barcode}")
         api_data_dto = self._fetch_raw_from_api(barcode)
         
-        # 3. API 결과를 DB에 저장 (다음 조회를 위해)
+        # 3. API 결과를 캐시 및 DB에 저장
         self._save_raw_to_db(api_data_dto)
+        self.cache.setex(f"product:{barcode}", 3600, api_data_dto.model_dump_json())
         
         # 4. API 결과를 DB 조회 DTO 형식으로 변환하여 반환
         return RawProductAPIDTO.model_validate(api_data_dto)
