@@ -2,15 +2,15 @@
 from typing import Optional
 from fastapi import Depends
 from models.dtos import AnalysisScoresDTO
-from repositories.product_repository import ProductRepository 
+from repositories.food_repository import FoodRepository
 # (ProductRepository가 캐시/DB 조회를 모두 처리한다고 가정)
 
-class ScoreRetrievalService:
+class FoodRetrievalService:
     """
     바코드에 해당하는 기존 분석 점수를 '조회'하는 책임을 가짐.
     (전략: 캐시 -> DB 순서로 확인)
     """
-    def __init__(self, repo: ProductRepository = Depends(ProductRepository)):
+    def __init__(self, repo: FoodRepository = Depends(FoodRepository)):
         """
         데이터 접근을 위해 Repository에 의존
         """

@@ -69,7 +69,7 @@ class RawProductAPIDTO(BaseModel):
         extra='ignore'      # DTO에 정의되지 않은 필드는 무시
     )
 
-class ProductDTO(BaseModel):
+class FoodDTO(BaseModel):
     """
     [데이터: 표준 제품 규격]
     - '누가 만드나?': ProductNormalizationService (정규화 서비스의 출력)

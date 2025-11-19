@@ -1,15 +1,15 @@
 # services/product_pipeline_service.py
 from fastapi import Depends
 from models.dtos import (
-    AnalysisScoresDTO, ProductDTO, RawProductAPIDTO
+    AnalysisScoresDTO, FoodDTO, RawProductAPIDTO
 )
-from repositories.food_repository import ProductRepository
-from services.product_normalization_service import ProductNormalizationService
+from repositories.food_repository import FoodRepository
+from services.food_normalization_service import FoodNormalizationService
 #from services.packaging_analysis_service import PackagingAnalysisService
 #from services.additives_analysis_service import AdditivesAnalysisService
 #from services.nutrition_analysis_service import NutritionAnalysisService
 
-class ProductPipelineService:
+class FoodEvaluationService:
     """
     바코드가 주어졌을 때, 새로운 분석 점수를 생성하는 
     전체 파이프라인(API->정규화->분석->저장)을 수행하는 책임
@@ -17,8 +17,8 @@ class ProductPipelineService:
     def __init__(
         self,
         # 파이프라인 각 단계에 필요한 서비스들을 모두 주입받음
-        repo: ProductRepository = Depends(ProductRepository),
-        normalizer: ProductNormalizationService = Depends(ProductNormalizationService),
+        repo: FoodRepository = Depends(FoodRepository),
+        normalizer: FoodNormalizationService = Depends(FoodNormalizationService),
         pkg_service: PackagingAnalysisService = Depends(PackagingAnalysisService),
         add_service: AdditivesAnalysisService = Depends(AdditivesAnalysisService),
         nut_service: NutritionAnalysisService = Depends(NutritionAnalysisService)
@@ -40,7 +40,7 @@ class ProductPipelineService:
         
         # 2. [가공] 원본 데이터 -> 표준 ProductDTO로 정규화
         # (이 ProductDTO가 3대 분석 서비스의 공통 입력값이 됨)
-        product_dto: ProductDTO = self.normalizer.normalize(raw_data)
+        product_dto: FoodDTO = self.normalizer.normalize(raw_data)
         
         # 3. [분석] 3대 분석 서비스가 ProductDTO를 입력받아 점수 계산
         pkg_score = self.pkg_service.analyze(product_dto)

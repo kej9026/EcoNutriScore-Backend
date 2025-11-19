@@ -17,7 +17,7 @@ DEFAULT_WEIGHTS = {
     "nut_weight": 0.333   # 영양
 }
 
-class TotalScoreService:
+class FinalGradeCalculationService:
     #생성자에서 Repository를 주입받음
     def __init__(self, 
                  rule_repo: ScoreRuleRepository = Depends(ScoreRuleRepository), # <--- 여기 있습니다!

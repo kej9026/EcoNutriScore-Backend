@@ -3,9 +3,9 @@ from unittest.mock import Mock, MagicMock
 
 # --- 테스트 대상(SUT) 및 의존성 임포트 ---
 # (경로는 실제 프로젝트 구조에 맞게 조정해야 할 수 있습니다)
-from services.product_evaluation_service import ProductEvaluationService
-from services.score_retrieval_service import ScoreRetrievalService
-from services.product_pipeline_service import ProductPipelineService
+from services.food_orchestrator_service import FoodOrchestratorService
+from services.food_retrieval_service import FoodRetrievalService
+from services.food_evaluation_service import FoodEvaluationService
 
 # --- 테스트용 가짜(Fake) DTO 데이터 ---
 # (dtos.py의 실제 DTO 구조를 기반으로 만듭니다)

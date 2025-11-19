@@ -3,7 +3,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, Path
 
-from services.recommendation_service import RecommendationService
+from services.food_recommendation_service import RecommendationService
 from models.dtos import RawProductAPIDTO # 응답 DTO
 
 # 라우터 설정

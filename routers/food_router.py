@@ -6,8 +6,8 @@ from fastapi import (
 
 # +++ 서비스 임포트 +++
 from services.barcode_scanning_service import BarcodeScanningService
-from services.product_evaluation_service import ProductEvaluationService
-from services.total_score_service import TotalScoreService
+from services.food_orchestrator_service import FoodOrchestratorService
+from services.final_grade_calculation_service import FinalGradeCalculationService
 
 # +++ DTO 임포트 (dtos.py 파일에 정의된 모델 사용) +++
 from models.dtos import (

@@ -3,11 +3,11 @@ from fastapi import Depends
 from models.dtos import AnalysisScoresDTO
 
 # 수행 서비스들 import
-from services.score_retrieval_service import ScoreRetrievalService
-from services.product_pipeline_service import ProductPipelineService
+from services.food_retrieval_service import FoodRetrievalService
+from services.food_evaluation_service import FoodPipelineService
 # TotalScoreService 의존성 제거!
 
-class ProductEvaluationService:
+class FoodOrchestratorService:
     """
     바코드를 받아 3대 분석 점수(AnalysisScoresDTO)를 반환하는 책임을 짐.
     (가중치 계산은 이 서비스의 책임이 아님)
@@ -16,8 +16,8 @@ class ProductEvaluationService:
     """
     def __init__(
         self,
-        retriever: ScoreRetrievalService = Depends(ScoreRetrievalService),
-        pipeline: ProductPipelineService = Depends(ProductPipelineService)
+        retriever: FoodRetrievalService = Depends(FoodRetrievalService),
+        pipeline: FoodPipelineService = Depends(FoodPipelineService)
     ):
         self.retriever = retriever
         self.pipeline = pipeline

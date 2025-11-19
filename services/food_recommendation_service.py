@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, status
 from repositories.food_repository import FoodRepository
 from models.dtos import RawProductAPIDTO
 
-class RecommendationService:
+class FoodRecommendationService:
     """
     제품 추천 관련 비즈니스 로직을 담당합니다.
     """

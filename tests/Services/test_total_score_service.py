@@ -1,6 +1,6 @@
 import pytest
 from models.dtos import PackagingScore, AdditivesScore, NutritionScore, UserPrioritiesDTO
-from services.total_score_service import TotalScoreService
+from services.final_grade_calculation_service import FinalGradeCalculationService
 from repositories.score_rule_repository import ScoreRuleRepository
 
 # -------------------------------------------------------------------

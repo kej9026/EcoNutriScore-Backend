@@ -5,7 +5,7 @@ from models.dtos import (
 )
 # services/product_normalization_service.py
 
-class ProductNormalizationService:
+class FoodNormalizationService:
     def normalize(self, raw_data: RawProductAPIDTO) -> ProductDTO:
         """
         API에서 가져온 데이터를 분석 모듈이 사용할 ProductDTO로 정규화
