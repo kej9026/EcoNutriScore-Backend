@@ -103,7 +103,7 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
     return obj
 
 # =========================================================
-# (옵션) 바코드 → 식약처 C005 조회 후 products(foods) 테이블 upsert
+# (옵션) 바코드 → 식약처 C005 조회 후 foods 테이블 upsert
 # =========================================================
 @app.get("/barcode/{code}")
 def fetch_and_save_product(code: str, db: Session = Depends(get_db)):
@@ -195,20 +195,17 @@ def fetch_ingredients_safe(db: Session, barcode: str):
         return []
 
 # =========================================================
-#  기준함량 문자열 → ml 숫자 변환
-#   - '50ml', '100 ml', '50ML' 등 → 50.0
+#  기준함량 문자열 → ml 숫자 변환 ('50ml' → 50.0)
 # =========================================================
 def parse_serving_size_to_ml(serving_size: str | None) -> float | None:
     if not serving_size:
         return None
     s = serving_size.strip().lower()
-    # 숫자(정수/소수)만 추출
     m = re.search(r'[\d]+(?:[.,]\d+)?', s)
     if not m:
         return None
     value = float(m.group(0).replace(",", ""))
-    # 단위는 ml 기준이라고 가정 (요구사항)
-    return value
+    return value   # 단위는 ml이라고 가정
 
 # =========================================================
 # 포장재 정규화: DB 문자열 → pet/pp/ps/유리/알루미늄/복합재질
@@ -216,10 +213,7 @@ def parse_serving_size_to_ml(serving_size: str | None) -> float | None:
 def normalize_material(material: str | None) -> str | None:
     if not material:
         return None
-
     s = material.strip().lower()
-
-    # 우선 간단 매핑
     if "pet" in s:
         return "pet"
     if "pp" in s:
@@ -230,8 +224,6 @@ def normalize_material(material: str | None) -> str | None:
         return "유리"
     if "알루" in s or "alumi" in s:
         return "알루미늄"
-
-    # 나머지는 전부 복합재질로 처리
     return "복합재질"
 
 # =========================================================
@@ -248,22 +240,21 @@ def get_product_dto(barcode: str, db: Session = Depends(get_db)):
     serving_size_raw = base.get("serving_size")
     serving_ml = parse_serving_size_to_ml(serving_size_raw)
 
-    # 포장재 정규화 (영문/한글 섞여 있어도 규칙대로 변환)
     raw_material = base.get("packaging_material")
     norm_material = normalize_material(raw_material)
 
     return {
         "barcode":             base["barcode"],
         "name":                base["name"],
-        "serving_size_raw":    serving_size_raw,   # 예: '50ml'
-        "serving_ml":          serving_ml,         # 예: 50.0
+        "serving_size_raw":    serving_size_raw,
+        "serving_ml":          serving_ml,
         "sodium_mg":           base.get("sodium_mg"),
         "sugar_g":             base.get("sugar_g"),
         "sat_fat_g":           base.get("sat_fat_g"),
         "trans_fat_g":         base.get("trans_fat_g"),
         "additives_cnt":       base.get("additives_cnt"),
         "packaging_material_raw": raw_material,
-        "packaging_material":  norm_material,      # pet/pp/ps/유리/알루미늄/복합재질
+        "packaging_material":  norm_material,
         "report_no":           base.get("report_no"),
         "ingredients":         ingredients,
         "image_url":           base.get("image_url"),
@@ -272,7 +263,7 @@ def get_product_dto(barcode: str, db: Session = Depends(get_db)):
 
 # =========================================================
 # 점수 계산 유틸
-#  - 여기서는 이미 100ml 기준으로 환산된 값을 받는다고 가정
+#  - 여기서는 “100ml 기준으로 환산된 값”을 사용한다고 가정
 # =========================================================
 def score_range(value, bands):
     if value is None:
@@ -315,12 +306,30 @@ def score_packaging_from_normalized(norm_material: str | None) -> int:
         return 10
     return 0
 
+def calc_grade(total: float) -> str:
+    """총점 → 등급(A~E). 기준은 필요하면 팀에서 조정."""
+    if total >= 260:
+        return "A"
+    if total >= 200:
+        return "B"
+    if total >= 140:
+        return "C"
+    if total >= 80:
+        return "D"
+    return "E"
+
 # =========================================================
-# 제품 점수 API
-#  - 기준함량(serving_size) → ml 숫자 → 100ml 기준으로 환산해서 점수 계산
+# 내부용: 바코드 하나에 대해
+#  - 100ml 기준 정규화
+#  - 세부 점수(sodium/sugar/...) + nutrition/packaging/additives + 가중치 적용
 # =========================================================
-@app.get("/product-score/{barcode}")
-def product_score(barcode: str, db: Session = Depends(get_db)):
+def compute_scores_for_barcode(
+    barcode: str,
+    db: Session,
+    w_nutrition: float = 1.0,
+    w_packaging: float = 1.0,
+    w_additives: float = 1.0,
+):
     row = db.execute(PRODUCT_INFO_SQL, {"barcode": barcode}).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail=f"No record for barcode {barcode}")
@@ -332,27 +341,17 @@ def product_score(barcode: str, db: Session = Depends(get_db)):
     if serving_ml and serving_ml > 0:
         n = 100.0 / serving_ml
     else:
-        n = 1.0  # 기준함량 정보 없으면 스케일링 안함
+        n = 1.0
 
-    # 100ml 기준 값으로 스케일링
-    sodium_100 = row.get("sodium_mg")
-    sugar_100 = row.get("sugar_g")
-    sat_fat_100 = row.get("sat_fat_g")
-    trans_fat_100 = row.get("trans_fat_g")
+    # 100ml 기준 값
+    sodium_100 = float(row.get("sodium_mg")) * n if row.get("sodium_mg") is not None else None
+    sugar_100 = float(row.get("sugar_g")) * n if row.get("sugar_g") is not None else None
+    sat_fat_100 = float(row.get("sat_fat_g")) * n if row.get("sat_fat_g") is not None else None
+    trans_fat_100 = float(row.get("trans_fat_g")) * n if row.get("trans_fat_g") is not None else None
 
-    if sodium_100 is not None:
-        sodium_100 = float(sodium_100) * n
-    if sugar_100 is not None:
-        sugar_100 = float(sugar_100) * n
-    if sat_fat_100 is not None:
-        sat_fat_100 = float(sat_fat_100) * n
-    if trans_fat_100 is not None:
-        trans_fat_100 = float(trans_fat_100) * n
-
-    # 포장재 정규화
     norm_material = normalize_material(row.get("packaging_material"))
 
-    # 점수 계산 (예시 band는 이전과 동일하게 유지)
+    # 세부 점수
     sodium_score = score_range(
         sodium_100,
         [(0, 50, 100), (50, 120, 85), (120, 200, 70),
@@ -368,22 +367,23 @@ def product_score(barcode: str, db: Session = Depends(get_db)):
         [(0, 1, 40), (1, 3, 25), (3, 5, 10), (5, float("inf"), -15)],
     )
     trans_fat_score = score_trans_fat(trans_fat_100)
-    additives_score = score_additives(row.get("additives_cnt"))
-    packaging_score = score_packaging_from_normalized(norm_material)
+    additives_score_raw = score_additives(row.get("additives_cnt"))
+    packaging_score_raw = score_packaging_from_normalized(norm_material)
 
-    scores = {
-        "sodium":    sodium_score,
-        "sugar":     sugar_score,
-        "sat_fat":   sat_fat_score,
-        "trans_fat": trans_fat_score,
-        "additives": additives_score,
-        "packaging": packaging_score,
-    }
-    total = sum(scores.values())
+    # “영양 점수” = 나트륨 + 당류 + 포화 + 트랜스
+    nutrition_score_raw = sodium_score + sugar_score + sat_fat_score + trans_fat_score
 
-    return {
-        "barcode": row["barcode"],
-        "name": row["name"],
+    # 가중치 적용
+    nutrition_score = nutrition_score_raw * w_nutrition
+    packaging_score = packaging_score_raw * w_packaging
+    additives_score = additives_score_raw * w_additives
+
+    total_weighted = nutrition_score + packaging_score + additives_score
+    grade = calc_grade(total_weighted)
+
+    # API와 scan_history 둘 다에서 쓰기 좋게 묶어서 반환
+    result = {
+        "row": row,
         "serving_size_raw": serving_size_raw,
         "serving_ml": serving_ml,
         "scale_to_100ml": n,
@@ -393,8 +393,142 @@ def product_score(barcode: str, db: Session = Depends(get_db)):
             "sat_fat_g": sat_fat_100,
             "trans_fat_g": trans_fat_100,
         },
+        "detail_scores": {
+            "sodium": sodium_score,
+            "sugar": sugar_score,
+            "sat_fat": sat_fat_score,
+            "trans_fat": trans_fat_score,
+            "additives_raw": additives_score_raw,
+            "packaging_raw": packaging_score_raw,
+        },
+        "nutrition_score": nutrition_score,
+        "packaging_score": packaging_score,
+        "additives_score": additives_score,
+        "weights": {
+            "nutrition_weight": w_nutrition,
+            "packaging_weight": w_packaging,
+            "additives_weight": w_additives,
+        },
+        "total": total_weighted,
+        "grade": grade,
+        "normalized_material": norm_material,
+    }
+    return result
+
+# =========================================================
+# 제품 점수 API (가중치만 받고, DB에 저장은 안 함)
+# 예: GET /product-score/8801111222233?w_nutrition=1.5&w_packaging=1&w_additives=0.5
+# =========================================================
+@app.get("/product-score/{barcode}")
+def product_score(
+    barcode: str,
+    w_nutrition: float = 1.0,
+    w_packaging: float = 1.0,
+    w_additives: float = 1.0,
+    db: Session = Depends(get_db),
+):
+    data = compute_scores_for_barcode(
+        barcode,
+        db,
+        w_nutrition=w_nutrition,
+        w_packaging=w_packaging,
+        w_additives=w_additives,
+    )
+    row = data["row"]
+
+    return {
+        "barcode": row["barcode"],
+        "name": row["name"],
+        "serving_size_raw": data["serving_size_raw"],
+        "serving_ml": data["serving_ml"],
+        "scale_to_100ml": data["scale_to_100ml"],
+        "normalized_values_per_100ml": data["normalized_values_per_100ml"],
         "packaging_material_raw": row.get("packaging_material"),
-        "packaging_material": norm_material,
-        "scores": scores,
-        "total": total,
+        "packaging_material": data["normalized_material"],
+        "detail_scores": data["detail_scores"],
+        "weights": data["weights"],
+        "nutrition_score": data["nutrition_score"],
+        "packaging_score": data["packaging_score"],
+        "additives_score": data["additives_score"],
+        "total": data["total"],
+        "grade": data["grade"],
+    }
+
+# =========================================================
+# 스캔 API
+#   - user_id + 가중치 3개를 받아서 점수 계산 후 scan_history에 INSERT
+#   - 리턴값: DB에 저장된 내용 요약
+#   예: POST /scan/8801111222233?user_id=1&w_nutrition=1.5&w_packaging=1&w_additives=0.5
+# =========================================================
+@app.post("/scan/{barcode}")
+def scan_product(
+    barcode: str,
+    user_id: int,
+    w_nutrition: float = 1.0,
+    w_packaging: float = 1.0,
+    w_additives: float = 1.0,
+    db: Session = Depends(get_db),
+):
+    # 점수 계산
+    data = compute_scores_for_barcode(
+        barcode,
+        db,
+        w_nutrition=w_nutrition,
+        w_packaging=w_packaging,
+        w_additives=w_additives,
+    )
+    row = data["row"]
+
+    # food_id 찾기 (없으면 에러)
+    food = db.query(models.Food).filter_by(barcode=barcode).first()
+    if not food:
+        raise HTTPException(
+            status_code=400,
+            detail="foods 테이블에 해당 barcode가 없습니다. 먼저 /barcode/{code} 또는 수동 INSERT로 등록하세요.",
+        )
+
+    # scan_history INSERT
+    insert_sql = text("""
+        INSERT INTO scan_history (
+          user_id, food_id,
+          nutrition_weight, packaging_weight, additives_weight,
+          nutrition_score, packaging_score, additives_score,
+          score_total, grade
+        ) VALUES (
+          :user_id, :food_id,
+          :nw, :pw, :aw,
+          :ns, :ps, :as, :total, :grade
+        )
+    """)
+    result = db.execute(
+        insert_sql,
+        {
+            "user_id": user_id,
+            "food_id": food.food_id,
+            "nw": data["weights"]["nutrition_weight"],
+            "pw": data["weights"]["packaging_weight"],
+            "aw": data["weights"]["additives_weight"],
+            "ns": data["nutrition_score"],
+            "ps": data["packaging_score"],
+            "as": data["additives_score"],
+            "total": data["total"],
+            "grade": data["grade"],
+        },
+    )
+    db.commit()
+
+    scan_id = result.lastrowid
+
+    return {
+        "scan_id": scan_id,
+        "user_id": user_id,
+        "food_id": food.food_id,
+        "barcode": barcode,
+        "name": row["name"],
+        "weights": data["weights"],
+        "nutrition_score": data["nutrition_score"],
+        "packaging_score": data["packaging_score"],
+        "additives_score": data["additives_score"],
+        "total": data["total"],
+        "grade": data["grade"],
     }
