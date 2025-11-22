@@ -1,15 +1,12 @@
-# +++ FastAPI 핵심 모듈 임포트 +++
+#routers/food_router.py
 from fastapi import (
     APIRouter, Depends, UploadFile, 
     File, HTTPException
 )
-
-# +++ 서비스 임포트 +++
 from services.barcode_scanning_service import BarcodeScanningService
-from services.food_orchestrator_service import FoodOrchestratorService
+from services.food_analysis_service import FoodAnalysisService
 from services.final_grade_calculation_service import FinalGradeCalculationService
 
-# +++ DTO 임포트 (dtos.py 파일에 정의된 모델 사용) +++
 from models.dtos import (
     BarcodeScanResult,       # 0단계 응답
     AnalysisScoresDTO,       # 1단계 응답
@@ -18,8 +15,8 @@ from models.dtos import (
 )
 
 router = APIRouter(
-    prefix="/products",
-    tags=["Products API"]
+    prefix="/foods",
+    tags=["Foods API"]
 )
 
 # -------------------------------------------------------------------
@@ -31,8 +28,7 @@ async def scan_barcode_from_image(
     scanner_service: BarcodeScanningService = Depends(BarcodeScanningService)
 ):
     """
-    [0단계] 프론트엔드에서 이미지 파일을 업로드받아 바코드를 스캔합니다.
-    (라우터는 I/O 및 HTTP 검사, 서비스는 실제 로직 담당)
+    [0단계] 프론트엔드에서 이미지 파일을 업로드받아 바코드를 스캔
     """
     
     # 1. HTTP 요청 유효성 검사 (MIME 타입)
@@ -52,14 +48,14 @@ async def scan_barcode_from_image(
 @router.get("/analysis/{barcode}", response_model=AnalysisScoresDTO)
 def get_analysis_scores(
     barcode: str,
-    eval_service: ProductEvaluationService = Depends(ProductEvaluationService)
+    analysis_service: FoodAnalysisService = Depends(FoodAnalysisService)
 ):
     """
     [1단계] 바코드 번호(str)를 받아 3가지 분석 점수를 반환합니다.
     (DB/캐시 조회 또는 신규 생성 파이프라인 실행)
     """
     # ProductEvaluationService는 3대 분석 점수(DTO)만 반환
-    return eval_service.get_analysis_scores(barcode)
+    return analysis_service.get_analysis_scores(barcode)
 
 # -------------------------------------------------------------------
 # 2단계: 최종 점수 계산 (실시간 가중치 적용)
@@ -68,12 +64,14 @@ def get_analysis_scores(
 def calculate_final_grade(
     # dtos.py에 정의된 '2단계 요청 DTO'를 사용
     request_data: GradeCalculationRequest,
-    total_scorer: TotalScoreService = Depends(TotalScoreService)
+    user_id: int,
+    save_history: bool = True,
+    grade_service: FinalGradeCalculationService = Depends(FinalGradeCalculationService)
 ):
     """
     [2단계] 1단계 결과(AnalysisScoresDTO)와 
     사용자 가중치(UserPrioritiesDTO)를 받아 
-    최종 등급(GradeResult)을 계산합니다.
+    최종 등급(GradeResult)을 계산
     """
     
     # 1. 요청 DTO에서 3대 점수와 가중치 추출
@@ -81,10 +79,11 @@ def calculate_final_grade(
     user_priorities = request_data.priorities
     
     # 2. TotalScoreService에 계산 위임
-    # (total_score 함수가 GradeResult DTO를 직접 반환한다고 가정)
-    final_result = total_scorer.total_score(
+    final_result = grade_service.calculate_and_save(
+        user_id=user_id,
         scores=analysis_scores,
-        priorities=user_priorities
+        priorities=user_priorities,
+        save_to_db=save_history
     )
     
     return final_result

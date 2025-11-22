@@ -1,120 +1,146 @@
-#실제 점수 통합 및 AHP 로직 구현
-from typing import Optional, Tuple
+import numpy as np
+from typing import Tuple, Dict
 from fastapi import Depends
-from repositories.score_rule_repository import ScoreRuleRepository
-from repositories.history_repository import HistoryRepository
-from repositories.food_repository import FoodRepository
-from models.dtos import PackagingScore, AdditivesScore, NutritionScore, UserPrioritiesDTO
-from database import get_db
 from sqlalchemy.orm import Session
 
-import numpy as np
+from models.dtos import (
+    AnalysisScoresDTO, 
+    UserPrioritiesDTO, 
+    GradeResult,
+    UserPrioritiesDTO # 결과 반환용
+)
+from repositories.history_repository import HistoryRepository
 
-#기본 가중치
-DEFAULT_WEIGHTS = {
-    "pkg_weight": 0.333,  # 포장재
-    "add_weight": 0.333,  # 첨가물
-    "nut_weight": 0.333   # 영양
-}
+# 기본 가중치 (사용자 입력 없을 시)
+DEFAULT_WEIGHTS = {"pkg": 0.333, "add": 0.333, "nut": 0.333}
 
 class FinalGradeCalculationService:
-    #생성자에서 Repository를 주입받음
-    def __init__(self, 
-                 rule_repo: ScoreRuleRepository = Depends(ScoreRuleRepository), # <--- 여기 있습니다!
-                 food_repo: FoodRepository = Depends(FoodRepository),
-                 history_repo: HistoryRepository = Depends(HistoryRepository)
-                 ):
-        self.rule_repo = rule_repo # <--- self.rule_repo로 할당
-        self.food_repo = food_repo
-        self.history_repo = history_repo
+    def __init__(self, scan_repo: HistoryRepository = Depends(HistoryRepository)):
+        self.scan_repo = scan_repo
 
-    def _calculate_ahp_weights(self, priorities: UserPrioritiesDTO) -> dict:
-        #쌍대 비교 행렬 생성 (포장재, 첨가물, 영양 순서)
-        #A[i, j] = i가 j보다 얼마나 중요한가 (A[j, i] = 1 / A[i, j])
-        matrix = np.zeros((3, 3))
+    def _calculate_ahp(self, p: UserPrioritiesDTO) -> Dict[str, float]:
+        """
+        [백엔드 핵심 로직] AHP(계층화 분석법) 가중치 계산
+        입력: 사용자 비교 값 (1~9)
+        출력: 계산된 가중치 (합이 1.0이 되는 float 값들)
+        """
+        # 1. 쌍대 비교 행렬 생성 (3x3)
+        # 순서: [0]포장재, [1]첨가물, [2]영양
+        matrix = np.ones((3, 3)) # 대각선은 1로 초기화
+
+        def get_val_pair(value: int):
+            if value == 0: return 1.0, 1.0 # 0은 1(동등)로 처리
+            
+            val = float(abs(value))
+
+            if value > 0:
+                # 오른쪽이 더 중요 A vs B = 1/3 (A는 B의 1/3만큼 중요)
+                return 1.0 / val, val
+            else:
+                # 왼쪽이 더 중요 A vs B = 3 (A는 B보다 3배 중요)
+                val = abs(value)
+                return val, 1.0 / val
         
-        # 주 대각선은 1
-        matrix[0, 0] = 1.0  # 포장재 vs 포장재
-        matrix[1, 1] = 1.0  # 첨가물 vs 첨가물
-        matrix[2, 2] = 1.0  # 영양 vs 영양
-        
-        # 사용자가 입력한 값 (1~9 척도)
-        val_pkg_add = priorities.pkg_vs_add
-        val_pkg_nut = priorities.pkg_vs_nut
-        val_add_nut = priorities.add_vs_nut
-        
-        matrix[0, 1] = val_pkg_add      # 포장재 > 첨가물
-        matrix[1, 0] = 1.0 / val_pkg_add  # 첨가물 < 포장재
-        
-        matrix[0, 2] = val_pkg_nut      # 포장재 > 영양
-        matrix[2, 0] = 1.0 / val_pkg_nut  # 영양 < 포장재
-        
-        matrix[1, 2] = val_add_nut      # 첨가물 > 영양
-        matrix[2, 1] = 1.0 / val_add_nut  # 영양 < 첨가물
-        
-        #고유 벡터 계산 (가중치)
-        col_sum = matrix.sum(axis=0)
-        normalized_matrix = matrix / col_sum
-        weights = normalized_matrix.mean(axis=1)
-        
+        # 포장 vs 첨가
+        v1, v2 = get_val_pair(p.pkg_vs_add)
+        matrix[0, 1] = v1
+        matrix[1, 0] = v2
+
+        # 포장 vs 영양
+        v1, v2 = get_val_pair(p.pkg_vs_nut)
+        matrix[0, 2] = v1
+        matrix[2, 0] = v2
+
+        # 첨가 vs 영양
+        v1, v2 = get_val_pair(p.add_vs_nut)
+        matrix[1, 2] = v1
+        matrix[2, 1] = v2
+
+        # 2. 가중치 계산 (열 합계에 의한 정규화법)
+        col_sum = matrix.sum(axis=0)       # 열 합계
+        normalized = matrix / col_sum      # 정규화
+        weights = normalized.mean(axis=1)  # 행 평균 = 최종 가중치
+
         return {
-            "pkg_weight": weights[0], # 포장재 가중치
-            "add_weight": weights[1], # 첨가물 가중치
-            "nut_weight": weights[2]  # 영양 가중치
+            "pkg": float(weights[0]),
+            "add": float(weights[1]),
+            "nut": float(weights[2])
         }
-    
-    #핵심 비즈니스 로직 (점수 통합)
-    def total_score(self, 
-        db: Session,
+
+    def calculate_and_save(
+        self, 
         user_id: int, 
-        prdlst_report_no: str, 
-        pkg_score: PackagingScore,
-        add_score: AdditivesScore, 
-        nut_score: NutritionScore,
-        priorities: Optional[UserPrioritiesDTO]=None
-        ) -> Tuple[int,str]:
-
-        weights = {}
-        #AHP 계산
-        if priorities:
-            # 시나리오 1: 사용자가 우선순위를 입력함 (맞춤형)
-            weights = self._calculate_ahp_weights(priorities)
-        else:
-            # 시나리오 2: 사용자가 입력을 안 함 (기본값)
-            weights = DEFAULT_WEIGHTS
-        total_score = (
-            (pkg_score.score * weights["pkg_weight"]) +
-            (add_score.score * weights["add_weight"]) +
-            (nut_score.score * weights["nut_weight"])
-        )
-
-        final_total_score = int(total_score)
-        #DB에서 등급 규칙 조회
-        rules = self.rule_repo.get_grade_rules() 
-        final_grade = "E" # 기본 등급
-        for grade, min_score in rules.items():
-            if final_total_score >= min_score:
-                final_grade = grade
-                break
-        # 1. 식품 이름 조회 (FoodRepository 사용)
-        #    (FoodRepository에 get_food_by_report_no 메서드가 있다고 가정)
-        food_dto = self.food_repo.get_food_by_report_no(prdlst_report_no)
+        scores: AnalysisScoresDTO, 
+        priorities: UserPrioritiesDTO, 
+        save_to_db: bool = True
+    ) -> GradeResult:
         
-        product_name = "알 수 없는 제품"
-        if food_dto and food_dto.prdlst_nm: # DTO와 이름 필드가 있는지 확인
-            product_name = food_dto.prdlst_nm
-        # 2. 스캔 기록 저장 (ScanHistoryRepository 사용)
-        #    (가중치를 포함하여 저장)
-        self.history_repo.create_scan_history(
-            db=db,
-            user_id=user_id,
-            prdlst_report_no=prdlst_report_no,
-            product_name=product_name,
-            total_score=final_total_score,
-            grade=final_grade,
-            pkg_weight=weights["pkg_weight"],
-            add_weight=weights["add_weight"],
-            nut_weight=weights["nut_weight"]
+        # 1. [AHP 계산] 백엔드에서 가중치 산출
+        weights_map = self._calculate_ahp(priorities)
+        
+        w_pkg = weights_map["pkg"]
+        w_add = weights_map["add"]
+        w_nut = weights_map["nut"]
+
+        # 2. [총점 계산] (3대 점수 * 가중치)
+        # (3대 점수는 100점 만점 기준이라고 가정)
+        s_pkg = scores.packaging.score
+        s_add = scores.additives.score
+        s_nut = scores.nutrition.score
+
+        # 가중 평균 (Weights 합은 1.0이므로 나누기 불필요)
+        total_val = (s_pkg * w_pkg) + (s_add * w_add) + (s_nut * w_nut)
+        final_total_score = float(total_val)
+
+        # 3. [등급 산정]
+        final_grade = self._calculate_grade_letter(final_total_score)
+
+        # 4. [DB 저장]
+        scan_id = None
+        if save_to_db:
+            saved_record = self.scan_repo.create_scan_history(
+                user_id=user_id,
+                barcode=scores.barcode,
+
+                total_score=final_total_score,
+                grade=final_grade,
+                
+                nutrition_score=s_nut,
+                packaging_score=s_pkg,
+                additives_score=s_add,
+                
+                w_nutrition=w_nut,
+                w_packaging=w_pkg,
+                w_additives=w_add
+            )
+            scan_id = saved_record.scan_id
+
+        # 5. [결과 반환]
+        calculated_weights = UserPrioritiesDTO(
+            packaging_weight=w_pkg,
+            additives_weight=w_add,
+            nutrition_weight=w_nut
         )
 
-        return final_total_score, final_grade
+        return GradeResult(
+            scan_id=scan_id,
+            user_id=user_id,
+            name=scores.name,
+            grade=final_grade,
+            total_score=final_total_score,
+            
+            # 여기서 계산된 가중치를 돌려줍니다
+            weights=calculated_weights,
+            
+            nutrition_score=s_nut,
+            packaging_score=s_pkg,
+            additives_score=s_add
+        )
+
+    def _calculate_grade_letter(self, score: float) -> str:
+        # (점수 기준은 필요에 따라 조정)
+        if score >= 90: return "A"
+        if score >= 80: return "B"
+        if score >= 70: return "C"
+        if score >= 60: return "D"
+        return "E"

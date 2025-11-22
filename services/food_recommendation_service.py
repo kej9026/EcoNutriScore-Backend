@@ -1,5 +1,4 @@
 # services/recommendation_service.py
-
 from typing import List
 from fastapi import Depends, HTTPException, status
 from repositories.food_repository import FoodRepository
@@ -15,7 +14,7 @@ class FoodRecommendationService:
 
     def get_alternative_products(self, prdlst_report_no: str) -> List[RawProductAPIDTO]:
         """
-        주어진 제품과 동일한 '대표 식품 코드'를 가진 
+        주어진 제품과 동일한 대표 식품 코드를 가진 
         대안 제품 목록을 반환합니다.
         """
         
@@ -28,8 +27,7 @@ class FoodRecommendationService:
                 detail="Original product not found."
             )
 
-        # 2. 원본 제품의 '대표 식품 코드' 확인
-        # [중요] RawProductAPIDTO에 'prdlst_cd' 필드가 있어야 합니다.
+        # 2. 원본 제품의 대표 식품 코드 확인
         if not hasattr(original_food, 'prdlst_cd') or not original_food.prdlst_cd:
             # 대표 식품 코드가 없는 제품이면 빈 리스트 반환
             return [] 

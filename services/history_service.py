@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 from typing import List
 from models.models import ScanHistory
-import repositories.history_repository as history_repository # 리포지토리 임포트
+import repositories.history_repository as history_repository
 
 # 비즈니스 로직에서 사용할 상수 (예: 반환 개수)
 HISTORY_LIMIT = 20

@@ -211,3 +211,8 @@ tests/test_assets/blank_image.png
 tests/test_assets/valid_barcode.jpg
 tests/test_assets/not_an_image.txt
 tests/test_assets/valid_barcode.png
+config.py
+init.sql
+cache.py
+additives.csv
+upload_csv.py

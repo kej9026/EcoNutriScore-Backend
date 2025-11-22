@@ -1,0 +1,974 @@
+{
+  "openapi": "3.0.2",
+  "info": {
+    "title": "EcoNutri API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/foods/scan-barcode-image": {
+      "post": {
+        "tags": [
+          "Foods API"
+        ],
+        "summary": "Scan Barcode From Image",
+        "description": "[0단계] 프론트엔드에서 이미지 파일을 업로드받아 바코드를 스캔합니다.\n(라우터는 I/O 및 HTTP 검사, 서비스는 실제 로직 담당)",
+        "operationId": "scan_barcode_from_image_foods_scan_barcode_image_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_scan_barcode_from_image_foods_scan_barcode_image_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarcodeScanResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/foods/analysis/{barcode}": {
+      "get": {
+        "tags": [
+          "Foods API"
+        ],
+        "summary": "Get Analysis Scores",
+        "description": "[1단계] 바코드 번호(str)를 받아 3가지 분석 점수를 반환합니다.\n(DB/캐시 조회 또는 신규 생성 파이프라인 실행)",
+        "operationId": "get_analysis_scores_foods_analysis__barcode__get",
+        "parameters": [
+          {
+            "name": "barcode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Barcode"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisScoresDTO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/foods/calculate-grade": {
+      "post": {
+        "tags": [
+          "Foods API"
+        ],
+        "summary": "Calculate Final Grade",
+        "description": "[2단계] 1단계 결과(AnalysisScoresDTO)와 \n사용자 가중치(UserPrioritiesDTO)를 받아 \n최종 등급(GradeResult)을 계산합니다.",
+        "operationId": "calculate_final_grade_foods_calculate_grade_post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "save_history",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Save History"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradeCalculationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradeResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history": {
+      "post": {
+        "tags": [
+          "Scan History"
+        ],
+        "summary": "스캔 수행 및 기록 저장",
+        "description": "[구 scan_router.py 기능 통합]\n사용자가 제품을 스캔하고 가중치를 적용하여 결과를 '저장'합니다.\n- 계산 로직은 FinalGradeCalculationService를 재사용합니다.\n- save_to_db=True를 강제하여 무조건 히스토리에 남깁니다.",
+        "operationId": "create_scan_record_history_post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradeCalculationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradeResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/me": {
+      "get": {
+        "tags": [
+          "Scan History"
+        ],
+        "summary": "내 스캔 기록 목록 조회",
+        "description": "현재 사용자의 최근 스캔 기록을 N개 반환",
+        "operationId": "get_my_scan_history_history_me_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Skip"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScanHistoryDTO"
+                  },
+                  "title": "Response Get My Scan History History Me Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/{scan_id}": {
+      "get": {
+        "tags": [
+          "Scan History"
+        ],
+        "summary": "특정 스캔 기록 상세 조회",
+        "description": "특정 기록(scan_id)의 상세 정보를 가져옵니다.\n(내 기록이 아니면 권한 에러를 낼 수도 있음)",
+        "operationId": "get_scan_history_detail_history__scan_id__get",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanHistoryDTO"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Scan History"
+        ],
+        "summary": "스캔 기록 삭제",
+        "description": "특정 스캔 기록을 삭제합니다.",
+        "operationId": "delete_scan_history_history__scan_id__delete",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations/{prdlst_report_no}/alternatives": {
+      "get": {
+        "tags": [
+          "Recommendations"
+        ],
+        "summary": "Get Alternative Recommendations",
+        "description": "특정 제품 보고 번호(prdlst_report_no)를 기준으로,\n'대표 식품 코드'가 동일한 대안 제품 목록을 반환합니다.",
+        "operationId": "get_alternative_recommendations_recommendations__prdlst_report_no__alternatives_get",
+        "parameters": [
+          {
+            "name": "prdlst_report_no",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Report Number",
+              "description": "기준이 되는 제품의 보고 번호"
+            },
+            "description": "기준이 되는 제품의 보고 번호"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RawProductAPIDTO"
+                  },
+                  "title": "Response Get Alternative Recommendations Recommendations  Prdlst Report No  Alternatives Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Index",
+        "operationId": "index__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdditivesDetail": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "risk_level": {
+            "type": "string",
+            "title": "Risk Level",
+            "default": "Unknown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score",
+          "count"
+        ],
+        "title": "AdditivesDetail",
+        "description": "첨가물 점수 상세"
+      },
+      "AnalysisScoresDTO": {
+        "properties": {
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "nutrition": {
+            "$ref": "#/components/schemas/NutritionDetail"
+          },
+          "packaging": {
+            "$ref": "#/components/schemas/PackagingDetail"
+          },
+          "additives": {
+            "$ref": "#/components/schemas/AdditivesDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "barcode",
+          "name",
+          "nutrition",
+          "packaging",
+          "additives"
+        ],
+        "title": "AnalysisScoresDTO",
+        "description": "[API 1단계 응답] /products/analysis/{barcode}\n3대 분석 점수와 제품 기본 정보를 담고 있음"
+      },
+      "BarcodeScanResult": {
+        "properties": {
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "unknown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "barcode"
+        ],
+        "title": "BarcodeScanResult",
+        "description": "이미지 업로드 시 바코드 인식 결과"
+      },
+      "Body_scan_barcode_from_image_foods_scan_barcode_image_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_scan_barcode_from_image_foods_scan_barcode_image_post"
+      },
+      "GradeCalculationRequest": {
+        "properties": {
+          "scores": {
+            "$ref": "#/components/schemas/AnalysisScoresDTO"
+          },
+          "priorities": {
+            "$ref": "#/components/schemas/UserPrioritiesDTO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scores",
+          "priorities"
+        ],
+        "title": "GradeCalculationRequest",
+        "description": "[API 2단계 요청] /products/calculate-grade\n1단계에서 받은 '점수 데이터' + 사용자가 설정한 '가중치'를 되돌려 보냄"
+      },
+      "GradeResult": {
+        "properties": {
+          "scan_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Id"
+          },
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "food_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Food Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "grade": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ],
+            "title": "Grade"
+          },
+          "total_score": {
+            "type": "number",
+            "title": "Total Score"
+          },
+          "weights": {
+            "$ref": "#/components/schemas/UserPrioritiesDTO"
+          },
+          "nutrition_score": {
+            "type": "number",
+            "title": "Nutrition Score"
+          },
+          "packaging_score": {
+            "type": "number",
+            "title": "Packaging Score"
+          },
+          "additives_score": {
+            "type": "number",
+            "title": "Additives Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "name",
+          "grade",
+          "total_score",
+          "weights",
+          "nutrition_score",
+          "packaging_score",
+          "additives_score"
+        ],
+        "title": "GradeResult",
+        "description": "[API 2단계 응답] 최종 계산 결과"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "NutritionDetail": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "sodium_mg": {
+            "type": "number",
+            "title": "Sodium Mg"
+          },
+          "sugar_g": {
+            "type": "number",
+            "title": "Sugar G"
+          },
+          "sat_fat_g": {
+            "type": "number",
+            "title": "Sat Fat G"
+          },
+          "trans_fat_g": {
+            "type": "number",
+            "title": "Trans Fat G"
+          },
+          "serving_ml": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serving Ml"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score",
+          "sodium_mg",
+          "sugar_g",
+          "sat_fat_g",
+          "trans_fat_g"
+        ],
+        "title": "NutritionDetail",
+        "description": "영양 점수 상세 (100ml 기준 환산값 포함)"
+      },
+      "PackagingDetail": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "material": {
+            "type": "string",
+            "title": "Material"
+          },
+          "raw_material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Material"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score",
+          "material"
+        ],
+        "title": "PackagingDetail",
+        "description": "포장재 점수 상세"
+      },
+      "RawProductAPIDTO": {
+        "properties": {
+          "barcode": {
+            "type": "string",
+            "title": "Barcode"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "report_no": {
+            "type": "string",
+            "title": "Report No"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "serving_size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serving Size"
+          },
+          "sodium_mg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sodium Mg"
+          },
+          "sugar_g": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sugar G"
+          },
+          "sat_fat_g": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sat Fat G"
+          },
+          "trans_fat_g": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trans Fat G"
+          },
+          "packaging_material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packaging Material"
+          },
+          "additives_cnt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additives Cnt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "barcode",
+          "name",
+          "report_no"
+        ],
+        "title": "RawProductAPIDTO",
+        "description": "[Repository -> Service]\n식약처 API의 지저분한 필드명을 그대로 받아주는 DTO"
+      },
+      "ScanHistoryDTO": {
+        "properties": {
+          "scan_id": {
+            "type": "integer",
+            "title": "Scan Id"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "grade": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ],
+            "title": "Grade"
+          },
+          "total_score": {
+            "type": "number",
+            "title": "Total Score"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scan_id",
+          "product_name",
+          "grade",
+          "total_score",
+          "created_at"
+        ],
+        "title": "ScanHistoryDTO",
+        "description": "[API] /history/me 목록 조회용"
+      },
+      "UserPrioritiesDTO": {
+        "properties": {
+          "pkg_vs_add": {
+            "type": "integer",
+            "title": "Pkg Vs Add",
+            "default": 1
+          },
+          "pkg_vs_nut": {
+            "type": "integer",
+            "title": "Pkg Vs Nut",
+            "default": 1
+          },
+          "add_vs_nut": {
+            "type": "integer",
+            "title": "Add Vs Nut",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "title": "UserPrioritiesDTO",
+        "description": "사용자가 슬라이더 등으로 설정한 가중치 (합이 10이든 1.0이든 로직에 맞춤)"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

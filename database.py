@@ -1,9 +1,12 @@
 # capston_app/database.py
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
+from dotenv import load_dotenv
+import os
 
 # 본인 비번/호스트에 맞게 수정
-DB_URL = "mysql+pymysql://root:1234@127.0.0.1:3306/capston1?charset=utf8mb4"
+load_dotenv()
+DB_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(
     DB_URL,

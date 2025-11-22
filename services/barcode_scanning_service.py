@@ -1,14 +1,12 @@
 # services/barcode_scanning_service.py
-
 import io
 from pyzbar.pyzbar import decode
 from PIL import Image
 from fastapi import HTTPException
-from models.dtos import BarcodeScanResult  # DTO 모델을 dtos 파일에서 가져온다고 가정
+from models.dtos import BarcodeScanResult 
 
 class BarcodeScanningService:
     def __init__(self):
-        # (필요하다면 로거 등 초기화)
         pass
 
     def scan_image_to_barcode(self, image_bytes: bytes) -> BarcodeScanResult:
@@ -26,8 +24,6 @@ class BarcodeScanningService:
             barcodes = decode(img)
             
             if not barcodes:
-                # 이것은 '서버 오류'가 아니라 '로직 결과'이므로
-                # 404 (Not Found)로 처리
                 raise HTTPException(status_code=404, detail="이미지에서 바코드를 찾을 수 없습니다.")
 
             # 3. 첫 번째 결과 사용
@@ -39,7 +35,7 @@ class BarcodeScanningService:
             return BarcodeScanResult(barcode=barcode_data, type=barcode_type)
         
         except HTTPException as e:
-            # 우리가 직접 발생시킨 HTTP 예외는 그대로 다시 발생시킴
+            # 직접 발생시킨 HTTP 예외는 그대로 다시 발생시킴
             raise e
         except Exception as e:
             # Pillow가 이미지를 열지 못하는 등(e.g., 손상된 파일)
