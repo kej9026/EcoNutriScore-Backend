@@ -2,7 +2,7 @@
 import os
 import json
 import requests
-from typing import Optional
+from typing import Optional, List
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql import text
@@ -320,3 +320,24 @@ class FoodRepository:
             if ing in self.additive_set:
                 count += 1
         return count
+    def get_food_by_report_no(self, report_no: str) -> Optional[RawProductAPIDTO]:
+        """보고번호로 제품 찾기 (추천 서비스용)"""
+        food_obj = self.db.query(Food).filter(Food.prdlst_report_no == report_no).first()
+        if food_obj:
+            return self._entity_to_dto(food_obj)
+        return None
+
+    def find_alternatives(self, category_code: str, exclude_report_no: str, limit: int = 5) -> List[RawProductAPIDTO]:
+        """
+        같은 카테고리(category_code)의 다른 제품들을 조회
+        - exclude_report_no: 현재 보고 있는 제품은 제외
+        """
+        foods = self.db.query(Food).options(
+            joinedload(Food.nutrition),
+            joinedload(Food.recycling)
+        ).filter(
+            Food.category_code == category_code,
+            Food.prdlst_report_no != exclude_report_no
+        ).limit(limit).all()
+
+        return [self._entity_to_dto(f) for f in foods]

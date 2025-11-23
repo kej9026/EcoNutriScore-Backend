@@ -91,7 +91,6 @@ class ScanHistory(Base):
 
     scan_id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    # food_id와 연결 (init.sql 참조)
     food_id = Column(Integer, ForeignKey("foods.food_id"), nullable=False)
 
     # 가중치
