@@ -30,10 +30,5 @@ class FoodAnalysisService:
         # [계산] ScoreService에게 계산 위임
         # ---------------------------------------------------------
         analysis_scores = self.calculator.calculate_all(raw_data)
-        
-        # ---------------------------------------------------------
-        # [저장] 계산된 결과를 DB에 저장
-        # ---------------------------------------------------------
-        self.repo.save_analysis_result(barcode, analysis_scores)
 
         return analysis_scores

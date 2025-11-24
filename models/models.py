@@ -107,6 +107,9 @@ class ScanHistory(Base):
 
     scanned_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    food = relationship("Food")
+    user = relationship("User")
+
 class Additive(Base):
     __tablename__ = "additives"
 

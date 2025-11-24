@@ -243,11 +243,11 @@ class FoodRepository:
             # 1. Food 테이블
             new_food = Food(
                 barcode=dto.barcode,
-                name=dto.PRDLST_NM,
-                brand=dto.BSSH_NM,
-                prdlst_report_no=dto.PRDLST_REPORT_NO,
-                category_code=dto.PRDLST_DCNM,
-                image_url=dto.IMG_URL
+                name=dto.name,                # PRDLST_NM -> name
+                brand=dto.brand,              # BSSH_NM -> brand
+                prdlst_report_no=dto.report_no, # PRDLST_REPORT_NO -> report_no
+                category_code=dto.category,   # PRDLST_DCNM -> category
+                image_url=dto.image_url       # IMG_URL -> image_url
             )
             self.db.add(new_food)
             
@@ -272,7 +272,7 @@ class FoodRepository:
             self.db.add(new_recy)
 
             self.db.commit()
-            print(f"[Repo] Saved split data for {dto.PRDLST_NM}")
+            print(f"[Repo] Saved split data for {dto.name}")
 
         except Exception as e:
             self.db.rollback()

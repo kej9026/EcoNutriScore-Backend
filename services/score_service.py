@@ -34,7 +34,7 @@ class ScoreService:
             name=raw.name,
             image_url=raw.image_url,
             category_code=raw.category,
-            
+            report_no=raw.report_no,
             # 계산된 상세 점수들
             nutrition=nut_detail,
             packaging=pkg_detail,
@@ -79,7 +79,7 @@ class ScoreService:
         )
 
     def _score_range(self, val: float, bands: List[Tuple[float, float, int]]) -> int:
-        """범위에 따른 점수 반환 (main.py 로직)"""
+        """범위에 따른 점수 반환"""
         for low, high, score in bands:
             if low <= val < high:
                 return score
@@ -106,7 +106,7 @@ class ScoreService:
         )
 
     def _normalize_material(self, material: Optional[str]) -> str:
-        """재질명 정규화 (main.py 로직)"""
+        """재질명 정규화"""
         if not material: return "기타"
         s = material.lower()
         if "pet" in s: return "PET"

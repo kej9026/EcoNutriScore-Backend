@@ -1,7 +1,7 @@
 # models/dtos.py
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any, Literal
-
+from datetime import datetime
 # ===================================================================
 # 0. 공통 타입 정의
 # ===================================================================
@@ -24,12 +24,11 @@ class RawProductAPIDTO(BaseModel):
     식약처 API의 지저분한 필드명을 그대로 받아주는 DTO
     """
     barcode: str
-    # API 필드명 매핑 (DB 컬럼명이나 API 응답 키값에 맞춤)
-    PRDLST_NM: str              = Field(..., alias="name")       # 제품명
-    PRDLST_REPORT_NO: str       = Field(..., alias="report_no")  # 보고번호
-    IMG_URL: Optional[str]      = Field(None, alias="image_url") # 이미지
-    PRDLST_DCNM: Optional[str]  = Field(None, alias="category")  # 카테고리
-    BSSH_NM: Optional[str]      = Field(None, alias="brand")     # 제조사
+    name: str                # PRDLST_NM -> name
+    report_no: Optional[str] # PRDLST_REPORT_NO -> report_no
+    image_url: Optional[str] = None # IMG_URL -> image_url
+    category: Optional[str]  # PRDLST_DCNM -> category
+    brand: Optional[str]     # BSSH_NM -> brand
 
     # 영양 정보 (문자열로 올 수도 있어서 유연하게)
     serving_size: Optional[str] = None
@@ -78,6 +77,7 @@ class AnalysisScoresDTO(BaseModel):
     """
     barcode: str
     name: str
+    report_no: Optional[str] = None
     image_url: Optional[str] = None
     category_code: Optional[str] = None
     
@@ -145,6 +145,6 @@ class ScanHistoryDTO(BaseModel):
     image_url: Optional[str] = None
     grade: Grade
     total_score: float
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

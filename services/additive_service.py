@@ -21,7 +21,7 @@ class AdditiveService:
         try:
             additives = db.query(Additive).all()
             self.additive_set = {item.name for item in additives}
-            print(f"[AdditiveService] 유해성분 {len(self.additives)}개 로드 완료")
+            print(f"[AdditiveService] 유해성분 {len(self.additive_set)}개 로드 완료")
         except Exception as e:
             print(f"[AdditiveService] 로드 실패: {e}")
         finally:

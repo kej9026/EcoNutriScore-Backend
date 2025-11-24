@@ -15,7 +15,7 @@ class FoodRecommendationService:
     def get_alternative_products(self, prdlst_report_no: str) -> List[RawProductAPIDTO]:
         """
         주어진 제품(보고번호)과 동일한 카테고리 코드를 가진 
-        대안 제품 목록을 반환합니다.
+        대안 식품 목록을 반환합니다.
         """
         
         # 1. 원본 제품 정보 조회

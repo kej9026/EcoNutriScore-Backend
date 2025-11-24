@@ -78,7 +78,7 @@ def calculate_final_grade(
     analysis_scores = request_data.scores
     user_priorities = request_data.priorities
     
-    # 2. TotalScoreService에 계산 위임
+    # 2. 계산 위임
     final_result = grade_service.calculate_and_save(
         user_id=user_id,
         scores=analysis_scores,

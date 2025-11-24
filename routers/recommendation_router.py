@@ -25,6 +25,6 @@ def get_alternative_recommendations(
 ):
     """
     특정 제품 보고 번호(prdlst_report_no)를 기준으로,
-    대표 식품 코드가 동일한 대안 제품 목록을 반환
+    대표 식품 코드가 동일한 대체 식품 목록을 반환
     """
     return service.get_alternative_products(prdlst_report_no)
