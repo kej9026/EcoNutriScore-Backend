@@ -21,7 +21,8 @@ dependencies = [
     "python-dotenv (>=1.2.1,<2.0.0)",
     "python-multipart (>=0.0.20,<0.0.21)",
     "cryptography (>=46.0.3,<47.0.0)",
-    "argon2-cffi (>=25.1.0,<26.0.0)"
+    "argon2-cffi (>=25.1.0,<26.0.0)",
+    "gunicorn (>=23.0.0,<24.0.0)"
 ]
 
 

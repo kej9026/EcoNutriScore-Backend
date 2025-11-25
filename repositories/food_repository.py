@@ -32,7 +32,7 @@ class FoodRepository:
         # [Redis 연결] 
         # 로컬/도커 환경에 맞게 호스트 설정 (기본: localhost)
         # decode_responses=True 필수 (bytes -> str 자동 변환)
-        self.redis = Redis(host='localhost', port=6379, db=0, decode_responses=True)
+        self.redis = Redis(host='4.236.184.102', port=6379, db=0, decode_responses=True)
 
     def get_raw_data(self, barcode: str) -> RawProductAPIDTO:
         """
