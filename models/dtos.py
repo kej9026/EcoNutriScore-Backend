@@ -184,3 +184,15 @@ class ScanHistoryDTO(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+# [회원가입/로그인 요청]
+class UserAuthRequest(BaseModel):
+    login_id: str
+    password: str
+
+# [회원가입/로그인 응답]
+class AuthResponse(BaseModel):
+    user_id: int
+    login_id: str
+    success: bool
+    message: Optional[str] = None

@@ -15,7 +15,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # [추가] 유저 지우면 스캔 기록도 같이 삭제 (Python 객체 레벨)
+    # 유저 지우면 스캔 기록도 같이 삭제
     scan_histories = relationship("ScanHistory", back_populates="user", cascade="all, delete-orphan")
 
 # =========================================================
@@ -38,13 +38,11 @@ class Food(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    # [수정] cascade="all, delete-orphan" 추가
     # Food를 지우면 영양, 포장, 원재료 정보도 같이 삭제됨
     nutrition = relationship("NutritionFact", back_populates="food", uselist=False, cascade="all, delete-orphan")
     recycling = relationship("RecyclingInfo", back_populates="food", uselist=False, cascade="all, delete-orphan")
     ingredients = relationship("Ingredient", back_populates="food", cascade="all, delete-orphan")
     
-    # [추가] Food 지우면 관련 스캔 기록도 삭제됨 (선택사항, 필요 없으면 빼도 됨)
     scan_histories = relationship("ScanHistory", back_populates="food", cascade="all, delete-orphan")
 
 # =========================================================
@@ -54,7 +52,7 @@ class NutritionFact(Base):
     __tablename__ = "nutrition_facts"
 
     nf_id = Column(Integer, primary_key=True, autoincrement=True)
-    # [수정] ondelete="CASCADE" 추가 (DB 레벨 삭제)
+
     barcode = Column(String(50), ForeignKey("foods.barcode", ondelete="CASCADE"), unique=True)
     
     serving_size = Column(String(50))
