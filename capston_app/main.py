@@ -3,8 +3,9 @@ from contextlib import asynccontextmanager
 import os
 import re
 import requests
-from dotenv import load_dotenv
+import hashlib
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
@@ -44,6 +45,122 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# =========================================================
+# 로그인/회원가입용 스키마 & 유틸
+# =========================================================
+class UserSignup(BaseModel):
+    login_id: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    login_id: str
+    password: str
+
+
+def hash_password(raw: str) -> str:
+    """
+    평문 비밀번호를 SHA-256으로 해싱해서 저장용 문자열로 변환
+    """
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+#=======================================================
+# 회원가입
+#=======================================================
+@app.post("/auth/signup")
+def signup(payload: UserSignup, db: Session = Depends(get_db)):
+    login_id = payload.login_id.strip()
+    password = payload.password
+
+    # 1) 비밀번호 길이 검사 (최소 8자)
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="비밀번호는 최소 8자리 이상이어야 합니다."
+        )
+
+    # 2) 아이디 중복 검사
+    row = db.execute(
+        text("SELECT user_id FROM users WHERE login_id = :login_id"),
+        {"login_id": login_id},
+    ).fetchone()
+
+    if row:
+        raise HTTPException(
+            status_code=400,
+            detail="이미 사용 중인 아이디입니다."
+        )
+
+    # 3) 비밀번호 해시 후 저장
+    password_hash = hash_password(password)
+
+    db.execute(
+        text("""
+            INSERT INTO users (login_id, password_hash)
+            VALUES (:login_id, :password_hash)
+        """),
+        {"login_id": login_id, "password_hash": password_hash},
+    )
+    db.commit()
+
+    # 방금 INSERT된 user_id 가져오기
+    user_id = db.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+
+    return {
+        "user_id": user_id,
+        "login_id": login_id,
+        "signup": True,
+    }
+
+# =========================================================
+# 로그인
+# =========================================================
+@app.post("/auth/login")
+def login(payload: UserLogin, db: Session = Depends(get_db)):
+    login_id = payload.login_id.strip()
+    password = payload.password
+
+    # 비밀번호 최소 길이는 회원가입과 맞춰서 체크
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="비밀번호는 최소 8자리 이상이어야 합니다."
+        )
+
+    # 1) 아이디로 사용자 찾기
+    row = db.execute(
+        text("""
+            SELECT user_id, password_hash
+            FROM users
+            WHERE login_id = :login_id
+        """),
+        {"login_id": login_id},
+    ).fetchone()
+
+    if not row:
+        # 아이디가 없을 때도 같은 에러 메시지
+        raise HTTPException(
+            status_code=400,
+            detail="아이디 또는 비밀번호가 올바르지 않습니다."
+        )
+
+    user_id, stored_hash = row
+
+    # 2) 비밀번호 해시 비교
+    if hash_password(password) != stored_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="아이디 또는 비밀번호가 올바르지 않습니다."
+        )
+
+    # 지금은 JWT 같은 건 안 쓰고, 그냥 로그인 성공 여부만 리턴
+    return {
+        "user_id": user_id,
+        "login_id": login_id,
+        "login": True,
+    }
+
 
 # =========================================================
 # 헬스체크
@@ -532,3 +649,6 @@ def scan_product(
         "total": data["total"],
         "grade": data["grade"],
     }
+
+
+
