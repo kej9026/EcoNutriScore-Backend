@@ -33,7 +33,6 @@ class ScoreService:
             barcode=raw.barcode,
             name=raw.name,
             image_url=raw.image_url,
-            category_code=raw.category,
             report_no=raw.report_no,
             # 계산된 상세 점수들
             nutrition=nut_detail,

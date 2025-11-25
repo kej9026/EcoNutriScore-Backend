@@ -1,30 +1,20 @@
-# routers/recommendation_router.py
 from typing import List
-from fastapi import APIRouter, Depends, Path
-
+from fastapi import APIRouter, Depends, Path, Query
 from services.food_recommendation_service import FoodRecommendationService
-from models.dtos import RawProductAPIDTO # 응답 DTO
+from models.dtos import RecommendationRequestDTO, RecommendationResultDTO
 
-# 라우터 설정
 router = APIRouter(
     prefix="/recommendations",
     tags=["Recommendations"]
 )
 
-@router.get(
-    "/{prdlst_report_no}/alternatives", 
-    response_model=List[RawProductAPIDTO]
+@router.post(
+    "/alternatives", 
+    response_model=List[RecommendationResultDTO],
+    summary="사용자 맞춤 대안 제품 추천"
 )
 def get_alternative_recommendations(
-    prdlst_report_no: str = Path(
-        ..., 
-        title="Product Report Number", 
-        description="기준이 되는 제품의 보고 번호"
-    ),
+    request: RecommendationRequestDTO, 
     service: FoodRecommendationService = Depends(FoodRecommendationService)
 ):
-    """
-    특정 제품 보고 번호(prdlst_report_no)를 기준으로,
-    대표 식품 코드가 동일한 대체 식품 목록을 반환
-    """
-    return service.get_alternative_products(prdlst_report_no)
+    return service.get_alternative_products(request)

@@ -7,7 +7,7 @@ from models.dtos import (
     AnalysisScoresDTO, 
     UserPrioritiesDTO, 
     GradeResult,
-    UserPrioritiesDTO # 결과 반환용
+    UserWeightsDTO
 )
 from repositories.history_repository import HistoryRepository
 
@@ -116,7 +116,7 @@ class FinalGradeCalculationService:
             scan_id = saved_record.scan_id
 
         # 5. [결과 반환]
-        calculated_weights = UserPrioritiesDTO(
+        calculated_weights = UserWeightsDTO(
             packaging_weight=w_pkg,
             additives_weight=w_add,
             nutrition_weight=w_nut

@@ -27,9 +27,12 @@ class RawProductAPIDTO(BaseModel):
     name: str                # PRDLST_NM -> name
     report_no: Optional[str] # PRDLST_REPORT_NO -> report_no
     image_url: Optional[str] = None # IMG_URL -> image_url
-    category: Optional[str]  # PRDLST_DCNM -> category
+    category_code: Optional[str]  # PRDLST_DCNM -> category
+    category_name: Optional[str] = None
     brand: Optional[str]     # BSSH_NM -> brand
-
+    base_nutrition_score: float = 0.0
+    base_packaging_score: float = 0.0
+    base_additives_score: float = 0.0
     # 영양 정보 (문자열로 올 수도 있어서 유연하게)
     serving_size: Optional[str] = None
     sodium_mg: Optional[str]    = None
@@ -61,7 +64,7 @@ class NutritionDetail(BaseModel):
 class PackagingDetail(BaseModel):
     """포장재 점수 상세"""
     score: float
-    material: str       # 정규화된 재질명 (예: "PET", "유리")
+    material: str       # 정규화된 재질명 (예: "PET", "유리")   
     raw_material: Optional[str] = None # 원본 문자열
 
 class AdditivesDetail(BaseModel):
@@ -79,7 +82,6 @@ class AnalysisScoresDTO(BaseModel):
     name: str
     report_no: Optional[str] = None
     image_url: Optional[str] = None
-    category_code: Optional[str] = None
     
     # 3대 분석 결과 (객체로 구조화)
     nutrition: NutritionDetail
@@ -112,6 +114,16 @@ class GradeCalculationRequest(BaseModel):
 # ===================================================================
 # 5. [2단계 출력] 최종 등급 결과 (API -> Frontend)
 # ===================================================================
+class UserWeightsDTO(BaseModel):
+    """
+    계산된 실제 가중치 (0.33, 0.5 등)
+    - 프론트엔드가 그래프 그릴 때 사용
+    - 추천 API 호출할 때 다시 사용
+    """
+    nutrition_weight: float
+    packaging_weight: float
+    additives_weight: float
+
 class GradeResult(BaseModel):
     """
     [API 2단계 응답] 최종 계산 결과
@@ -125,13 +137,37 @@ class GradeResult(BaseModel):
     total_score: float
     
     # 어떤 가중치로 계산했는지 확인용
-    weights: UserPrioritiesDTO
+    weights: UserWeightsDTO
     
     # 상세 점수 (그래프용)
     nutrition_score: float
     packaging_score: float
     additives_score: float
+class RecommendationRequestDTO(BaseModel):
+    """
+    프론트엔드가 가지고 있는 정보를 그대로 던져줌
+    """
+    report_no: str          # 카테고리 찾기용
+    total_score: float      # 기준 점수
+    weights: UserWeightsDTO # 가중치
+class RecommendationResultDTO(BaseModel):
+    """
+    추천된 제품의 정보 + 계산된 점수/등급
+    """
+    barcode: str
+    name: str
+    image_url: Optional[str] = None
+    brand: Optional[str] = None
+    
+    # 핵심 정보
+    total_score: float  # 가중치가 반영된 총점
+    grade: Grade        # A, B, C... 등급
 
+    nutrition_score: float
+    packaging_score: float
+    additives_score: float
+
+    model_config = ConfigDict(from_attributes=True)
 
 # ===================================================================
 # 6. [히스토리] 스캔 기록 목록 (History API)

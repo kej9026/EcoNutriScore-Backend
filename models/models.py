@@ -15,6 +15,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # [추가] 유저 지우면 스캔 기록도 같이 삭제 (Python 객체 레벨)
+    scan_histories = relationship("ScanHistory", back_populates="user", cascade="all, delete-orphan")
+
 # =========================================================
 # 2. 제품 마스터 (foods)
 # =========================================================
@@ -22,21 +25,27 @@ class Food(Base):
     __tablename__ = "foods"
 
     food_id = Column(Integer, primary_key=True, autoincrement=True)
-    barcode = Column(String(50), unique=True, nullable=False) # 바코드가 핵심 키
+    barcode = Column(String(50), unique=True, nullable=False) 
     prdlst_report_no = Column(String(50))
     name = Column(String(300))
     brand = Column(String(300))
     category_code = Column(String(32))
+    category_name = Column(String(100))
     image_url = Column(String(1000))
-    
+    base_nutrition_score = Column(Float, default=0.0)
+    base_packaging_score = Column(Float, default=0.0)
+    base_additives_score = Column(Float, default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    # [JOIN 설정] 
-    # 파이썬에서 food.nutrition 을 부르면 자동으로 nutrition_facts 테이블을 가져옴
-    nutrition = relationship("NutritionFact", back_populates="food", uselist=False)
-    recycling = relationship("RecyclingInfo", back_populates="food", uselist=False)
-    ingredients = relationship("Ingredient", back_populates="food")
+    # [수정] cascade="all, delete-orphan" 추가
+    # Food를 지우면 영양, 포장, 원재료 정보도 같이 삭제됨
+    nutrition = relationship("NutritionFact", back_populates="food", uselist=False, cascade="all, delete-orphan")
+    recycling = relationship("RecyclingInfo", back_populates="food", uselist=False, cascade="all, delete-orphan")
+    ingredients = relationship("Ingredient", back_populates="food", cascade="all, delete-orphan")
+    
+    # [추가] Food 지우면 관련 스캔 기록도 삭제됨 (선택사항, 필요 없으면 빼도 됨)
+    scan_histories = relationship("ScanHistory", back_populates="food", cascade="all, delete-orphan")
 
 # =========================================================
 # 3. 영양성분 (nutrition_facts)
@@ -45,8 +54,8 @@ class NutritionFact(Base):
     __tablename__ = "nutrition_facts"
 
     nf_id = Column(Integer, primary_key=True, autoincrement=True)
-    # foods 테이블의 barcode와 연결
-    barcode = Column(String(50), ForeignKey("foods.barcode"), unique=True)
+    # [수정] ondelete="CASCADE" 추가 (DB 레벨 삭제)
+    barcode = Column(String(50), ForeignKey("foods.barcode", ondelete="CASCADE"), unique=True)
     
     serving_size = Column(String(50))
     sodium_mg = Column(Integer)
@@ -64,10 +73,11 @@ class RecyclingInfo(Base):
     __tablename__ = "recycling_info"
 
     recy_id = Column(Integer, primary_key=True, autoincrement=True)
-    barcode = Column(String(50), ForeignKey("foods.barcode"), unique=True)
+    # [수정] ondelete="CASCADE" 추가
+    barcode = Column(String(50), ForeignKey("foods.barcode", ondelete="CASCADE"), unique=True)
     
     recycling_rate = Column(Float)
-    material = Column(String(50)) # PET, 유리 등
+    material = Column(String(50)) 
 
     food = relationship("Food", back_populates="recycling")
 
@@ -78,7 +88,8 @@ class Ingredient(Base):
     __tablename__ = "ingredients"
 
     ing_id = Column(Integer, primary_key=True, autoincrement=True)
-    barcode = Column(String(50), ForeignKey("foods.barcode"))
+    # [수정] ondelete="CASCADE" 추가
+    barcode = Column(String(50), ForeignKey("foods.barcode", ondelete="CASCADE"))
     name = Column(String(300))
 
     food = relationship("Food", back_populates="ingredients")
@@ -90,8 +101,9 @@ class ScanHistory(Base):
     __tablename__ = "scan_history"
 
     scan_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    food_id = Column(Integer, ForeignKey("foods.food_id"), nullable=False)
+    # [수정] ondelete="CASCADE" 추가 (유저나 음식이 삭제되면 기록도 삭제)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    food_id = Column(Integer, ForeignKey("foods.food_id", ondelete="CASCADE"), nullable=False)
 
     # 가중치
     nutrition_weight = Column(DECIMAL(4, 2), default=1.0)
@@ -107,8 +119,9 @@ class ScanHistory(Base):
 
     scanned_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    food = relationship("Food")
-    user = relationship("User")
+    # [수정] back_populates 연결
+    food = relationship("Food", back_populates="scan_histories")
+    user = relationship("User", back_populates="scan_histories")
 
 class Additive(Base):
     __tablename__ = "additives"

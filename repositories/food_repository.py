@@ -13,18 +13,22 @@ from models.dtos import RawProductAPIDTO
 from database import get_db 
 from dotenv import load_dotenv
 from services.additive_service import AdditiveService
+from services.score_service import ScoreService
 
 load_dotenv() 
 
 class FoodRepository:
-    def __init__(self, db: Session = Depends(get_db), additive_service: AdditiveService = Depends(AdditiveService)):
+    def __init__(self, db: Session = Depends(get_db),
+                 additive_service: AdditiveService = Depends(AdditiveService),
+                 score_service: ScoreService = Depends(ScoreService)):
         self.db = db
         self.food_api_key = os.getenv("FOOD_API_KEY")       # 식약처
         self.data_go_kr_key = os.getenv("DATA_GO_KR_API_KEY") # 공공데이터포털
         self.base_url_food = "http://openapi.foodsafetykorea.go.kr/api"
-        self.base_url_nutri = "https://api.data.go.kr/openapi/tn_pubr_public_nutri_process_info_api"
+        self.base_url_nutri = "http://api.data.go.kr/openapi/tn_pubr_public_nutri_process_info_api"
         self.base_url_img = "https://apis.data.go.kr/B553748/CertImgListServiceV3/getCertImgListServiceV3"
         self.additive_service = additive_service
+        self.score_service = score_service
         # [Redis 연결] 
         # 로컬/도커 환경에 맞게 호스트 설정 (기본: localhost)
         # decode_responses=True 필수 (bytes -> str 자동 변환)
@@ -135,6 +139,9 @@ class FoodRepository:
         try:
             i1250_url = f"{self.base_url_food}/{self.food_api_key}/I1250/json/1/5/PRDLST_REPORT_NO={report_no}"
             r = requests.get(i1250_url, timeout=3)
+            if r.status_code >= 400:
+                print(f"👉 [ API] Server Error (500): {r.text[:100]}")
+                return None # 여기서 끝냄! (더 이상 진행 X)
             rows = r.json().get("I1250", {}).get("row", [])
             if rows:
                 # FRMLC_MTRQLT (재질)
@@ -147,6 +154,9 @@ class FoodRepository:
         try:
             c002_url = f"{self.base_url_food}/{self.food_api_key}/C002/json/1/5/PRDLST_REPORT_NO={report_no}"
             r = requests.get(c002_url, timeout=3)
+            if r.status_code >= 400:
+                print(f"👉 [API] Server Error (500): {r.text[:100]}")
+                return None # 여기서 끝냄! (더 이상 진행 X)
             rows = r.json().get("C002", {}).get("row", [])
             if rows:
                 # RAWMTRL_NM (원재료)
@@ -168,6 +178,11 @@ class FoodRepository:
             r = requests.get(self.base_url_nutri, params=params, timeout=5)
             # 응답 구조가 다를 수 있으니 확인 필요 (보통 response -> body -> items)
             # 여기서는 바로 리스트가 오거나 body 안에 있다고 가정하고 처리
+            print(f"👉 [Nutri API Status]: {r.status_code}")
+            print(f"👉 [Nutri API Response]: {r.text[:500]}")
+            if r.status_code >= 400:
+                print(f"👉 [Nutri API] Server Error (400): {r.text[:100]}")
+                return None # 여기서 끝냄! (더 이상 진행 X)
             data = r.json()
             
             # 공공데이터 포털 응답 구조 파싱 (구조가 다양함, response/body/items/item 패턴 가정)
@@ -186,9 +201,11 @@ class FoodRepository:
                     "sugar": item.get("sugar"),                # 당류
                     "sat_fat": item.get("fasat"),              # 포화지방산
                     "trans_fat": item.get("fatrn"),            # 트랜스지방산
-                    "category": item.get("foodLv4Cd"),         # 대표식품코드
+                    "category_code": item.get("foodLv4Cd"),         # 대표식품코드
+                    "category_name" : item.get("foodLv4Nm")    # 대표식품코드명
                     # "name": item.get("foodNm")               # 식품명
                 }
+                print(f"👉 [Nutri] Name: {nut_dict.get('cat_name')}")
         except Exception as e: print(f"Nutri API Error: {e}")
 
         # --- Step 5: 공공데이터포털 이미지 API ---
@@ -201,6 +218,7 @@ class FoodRepository:
                 "returnType": "json"
             }
             r = requests.get(self.base_url_img, params=params, timeout=5)
+
             data = r.json()
             
             # 구조: body -> items -> item -> imgurl1
@@ -219,8 +237,8 @@ class FoodRepository:
             brand=brand_name,
             report_no=report_no,
             
-            # 카테고리는 영양API(Step4)에 있으면 쓰고, 없으면 C005(Step1)꺼 씀
-            category=nut_dict.get("category") or base_info.get("PRDLST_DCNM"),
+            category_code=nut_dict.get("category_code"), 
+            category_name=nut_dict.get("category_name"),
             image_url=image_url,
             
             # 영양성분 (Step 4)
@@ -240,14 +258,19 @@ class FoodRepository:
     def _save_to_db_split(self, dto: RawProductAPIDTO):
         """[핵심] DTO 하나를 쪼개서 여러 테이블에 저장"""
         try:
+            scores = self.score_service.calculate_all(dto)
             # 1. Food 테이블
             new_food = Food(
                 barcode=dto.barcode,
                 name=dto.name,                # PRDLST_NM -> name
                 brand=dto.brand,              # BSSH_NM -> brand
                 prdlst_report_no=dto.report_no, # PRDLST_REPORT_NO -> report_no
-                category_code=dto.category,   # PRDLST_DCNM -> category
-                image_url=dto.image_url       # IMG_URL -> image_url
+                category_code=dto.category_code,
+                category_name=dto.category_name,
+                image_url=dto.image_url,       # IMG_URL -> image_url
+                base_nutrition_score=scores.nutrition.score,
+                base_packaging_score=scores.packaging.score,
+                base_additives_score=scores.additives.score
             )
             self.db.add(new_food)
             
@@ -289,9 +312,12 @@ class FoodRepository:
             name=entity.name,
             brand=entity.brand,
             report_no=entity.prdlst_report_no,
-            category=entity.category_code,
+            category_code=entity.category_code,
+            category_name=entity.category_name,
             image_url=entity.image_url,
-            
+            base_nutrition_score=entity.base_nutrition_score,
+            base_packaging_score=entity.base_packaging_score,
+            base_additives_score=entity.base_additives_score,
             # 연관 객체에서 데이터 꺼내기
             serving_size=nut.serving_size if nut else None,
             sodium_mg=str(nut.sodium_mg) if nut else "0",
@@ -322,11 +348,17 @@ class FoodRepository:
         return count
     def get_food_by_report_no(self, report_no: str) -> Optional[RawProductAPIDTO]:
         """보고번호로 제품 찾기 (추천 서비스용)"""
+        print(f"🔍 [Repo] 찾는 보고번호: '{report_no}' (길이: {len(report_no)})")
+        
         food_obj = self.db.query(Food).filter(Food.prdlst_report_no == report_no).first()
+        
         if food_obj:
+            print(f"✅ [Repo] 찾았다! ID: {food_obj.food_id}, 이름: {food_obj.name}")
             return self._entity_to_dto(food_obj)
+        
+        print("❌ [Repo] DB에 없음!")
         return None
-
+    
     def find_alternatives(self, category_code: str, exclude_report_no: str, limit: int = 5) -> List[RawProductAPIDTO]:
         """
         같은 카테고리(category_code)의 다른 제품들을 조회
