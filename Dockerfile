@@ -28,4 +28,4 @@ COPY . .
 # 7. 포트 및 실행 명령어 설정
 # Render는 실행 시 $PORT 환경변수(보통 10000)를 주입합니다.
 # [중요 2] --bind 0.0.0.0:$PORT 추가 <--- 이거 없으면 접속 안 됨
-CMD gunicorn -w 1 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT
+CMD gunicorn -w 1 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT --log-level debug --timeout 120
