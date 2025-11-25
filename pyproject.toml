@@ -3,13 +3,25 @@ name = "capstone"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "kej9026",email = "kej9026@naver.com"}
+    {name = "kej9026",email = "kej9026@naver.com"},
+    {name = "andy1398",email = "byeong3018@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi (>=0.119.0,<0.120.0)",
-    "uvicorn[standard] (>=0.37.0,<0.38.0)"
+    "uvicorn[standard] (>=0.37.0,<0.38.0)",
+    "mysql-connector-python (>=9.4.0,<10.0.0)",
+    "numpy (>=2.3.4,<3.0.0)",
+    "pillow (>=12.0.0,<13.0.0)",
+    "sqlalchemy (>=2.0.44,<3.0.0)",
+    "redis (>=7.0.1,<8.0.0)",
+    "requests (>=2.32.5,<3.0.0)",
+    "pymysql (>=1.1.2,<2.0.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)",
+    "python-multipart (>=0.0.20,<0.0.21)",
+    "cryptography (>=46.0.3,<47.0.0)",
+    "argon2-cffi (>=25.1.0,<26.0.0)"
 ]
 
 
@@ -19,3 +31,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 package-mode = false
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.0,<10.0.0)"
+]
