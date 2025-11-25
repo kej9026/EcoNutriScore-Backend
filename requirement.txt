@@ -4,3 +4,4 @@ sqlalchemy>=2
 pymysql
 requests
 python-dotenv
+gunicorn
