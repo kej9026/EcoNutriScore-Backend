@@ -29,16 +29,24 @@ class FinalGradeCalculationService:
         matrix = np.ones((3, 3)) # 대각선은 1로 초기화
 
         def get_val_pair(value: int):
-            if value == 0: return 1.0, 1.0 # 0은 1(동등)로 처리
+            if value == 0: 
+                return 1.0, 1.0
             
+            # [수정 포인트]
+            # 슬라이더의 1(약간 중요)을 AHP 척도의 2(또는 그 이상)로 변환해야 유의미한 차이가 생깁니다.
+            # 방법 A: 1 -> 2, 2 -> 3, ..., 9 -> 10 으로 전체를 1씩 shift
+            # val = float(abs(value)) + 1.0 
+            
+            # 방법 B: 1인 경우만 2로 처리하고 나머지는 그대로 (Saaty 척도와 유사하게)
             val = float(abs(value))
+            if val == 1.0:
+                val = 2.0  # 1칸 움직였을 때 확실한 가중치 차이를 줌 (취향에 따라 1.5 등 조절 가능)
 
             if value > 0:
-                # 오른쪽이 더 중요 A vs B = 1/3 (A는 B의 1/3만큼 중요)
+                # 오른쪽이 더 중요 (분모로 들어감)
                 return 1.0 / val, val
             else:
-                # 왼쪽이 더 중요 A vs B = 3 (A는 B보다 3배 중요)
-                val = abs(value)
+                # 왼쪽이 더 중요 (분자로 들어감)
                 return val, 1.0 / val
         
         # 포장 vs 첨가

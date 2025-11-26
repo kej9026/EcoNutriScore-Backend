@@ -1,20 +1,18 @@
 from typing import List
 from fastapi import Depends, HTTPException, status
 from repositories.food_repository import FoodRepository
-# from services.score_service import ScoreService <-- 삭제! (이제 필요 없음)
 from models.dtos import RecommendationRequestDTO, RecommendationResultDTO
 
 class FoodRecommendationService:
     def __init__(
         self, 
         food_repo: FoodRepository = Depends(FoodRepository)
-        # score_service 삭제
     ):
         self.food_repo = food_repo
 
     def get_alternative_products(
         self, 
-        req: RecommendationRequestDTO # (DTO 이름 확인: RecommendationRequestDTO가 맞음)
+        req: RecommendationRequestDTO
     ) -> List[RecommendationResultDTO]:
         
         # 1. 원본 조회
