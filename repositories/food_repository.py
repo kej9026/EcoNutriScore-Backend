@@ -76,9 +76,6 @@ class FoodRepository:
         # ---------------------------------------------------------
         print(f"[Repo] API Fetching sequence started for: {barcode}")
         api_dto = self._fetch_full_data_sequence(barcode)
-        
-        if not api_dto:
-             raise HTTPException(status_code=404, detail="Product not found in External API")
 
         # 4. 저장 & 캐싱
         self._save_to_db_split(api_dto)
@@ -98,14 +95,6 @@ class FoodRepository:
             print(f"Redis Save Error: {e}")
 
     def _fetch_full_data_sequence(self, barcode: str) -> Optional[RawProductAPIDTO]:
-        """
-        [API 호출 시퀀스]
-        1. C005: 바코드 -> 보고번호(report_no) 획득
-        2. I1250: 보고번호 -> 포장재질
-        3. C002: 보고번호 -> 원재료명
-        4. PublicData(영양): 보고번호 -> 영양성분
-        5. PublicData(이미지): 보고번호 -> 이미지 URL
-        """
         if not self.food_api_key or not self.data_go_kr_key:
             print("API Keys missing!")
             return None
@@ -115,8 +104,10 @@ class FoodRepository:
         try:
             r = requests.get(c005_url, timeout=5)
             row_c005 = r.json().get("C005", {}).get("row", [])
+            
             if not row_c005:
-                return None # 바코드에 해당하는 제품 없음
+                # 데이터 없으면 404 던짐
+                raise HTTPException(status_code=404, detail="Product not found in External API (C005)")
             
             base_info = row_c005[0]
             report_no = base_info.get("PRDLST_REPORT_NO")
@@ -124,29 +115,41 @@ class FoodRepository:
             brand_name = base_info.get("BSSH_NM")
             
             print(f"Step 1 Done. Report No: {report_no}")
+
+        except HTTPException as he:
+            raise he # [중요] 404 에러는 잡지 말고 밖으로 던져야 함!
         except Exception as e:
             print(f"C005 Error: {e}")
-            return None
+            raise HTTPException(status_code=404, detail="Product not found (C005 Error)")
 
-        # 보고번호 없으면 더 이상 진행 불가
+        # 보고번호 없으면 200 리턴할지, 404 할지 결정 (여기선 일단 기존 로직 유지하거나 404)
         if not report_no:
-            return RawProductAPIDTO(
-                barcode=barcode, name=product_name, report_no=None, brand=brand_name
-            )
+             # 보고번호가 없으면 뒤에 API들 조회가 불가능하므로 여기서 404
+             raise HTTPException(status_code=404, detail="Product report number not found")
 
         # --- Step 2: I1250 (포장재질) ---
         pack_material = "기타"
         try:
             i1250_url = f"{self.base_url_food}/{self.food_api_key}/I1250/json/1/5/PRDLST_REPORT_NO={report_no}"
             r = requests.get(i1250_url, timeout=3)
+            
             if r.status_code >= 400:
-                print(f"👉 [ API] Server Error (500): {r.text[:100]}")
-                return None # 여기서 끝냄! (더 이상 진행 X)
+                raise HTTPException(status_code=404, detail="External API Error (I1250)")
+                
             rows = r.json().get("I1250", {}).get("row", [])
             if rows:
-                # FRMLC_MTRQLT (재질)
                 pack_material = rows[0].get("FRMLC_MTRQLT", "기타")
-        except Exception as e: print(f"I1250 Error: {e}")
+            else:
+                # 데이터 없으면 404 던짐
+                raise HTTPException(status_code=404, detail="Product not found in External API (I1250)")
+        
+        except HTTPException as he:
+            raise he # [중요] 잡은 404를 다시 던져서 함수를 종료시킴
+        except Exception as e: 
+            print(f"I1250 Error: {e}")
+            # 알 수 없는 에러도 일단 넘길지, 멈출지 결정. (여기선 로그 찍고 진행한다고 가정하면 pass, 멈추려면 raise)
+            # 멈추고 싶으면 아래 주석 해제
+            # raise HTTPException(status_code=404, detail="Error in I1250")
 
         # --- Step 3: C002 (원재료명) ---
         raw_materials = None
@@ -154,19 +157,24 @@ class FoodRepository:
         try:
             c002_url = f"{self.base_url_food}/{self.food_api_key}/C002/json/1/5/PRDLST_REPORT_NO={report_no}"
             r = requests.get(c002_url, timeout=3)
+            
             if r.status_code >= 400:
-                print(f"👉 [API] Server Error (500): {r.text[:100]}")
-                return None # 여기서 끝냄! (더 이상 진행 X)
+                raise HTTPException(status_code=404, detail="External API Error (C002)")
+
             rows = r.json().get("C002", {}).get("row", [])
             if rows:
-                # RAWMTRL_NM (원재료)
                 raw_materials = rows[0].get("RAWMTRL_NM")
                 if raw_materials:
                     calculated_additives_cnt = self.additive_service.calculate_count(raw_materials)
-        except Exception as e: print(f"C002 Error: {e}")
+            else:
+                raise HTTPException(status_code=404, detail="Product not found in External API (C002)")
+        
+        except HTTPException as he:
+            raise he # [중요] 404 재발생
+        except Exception as e: 
+            print(f"C002 Error: {e}")
 
         # --- Step 4: 공공데이터포털 영양성분 API ---
-        # 파라미터: serviceKey, itemMnftrRptNo, type=json
         nut_dict = {}
         try:
             params = {
@@ -176,59 +184,47 @@ class FoodRepository:
                 "numOfRows": "1"
             }
             r = requests.get(self.base_url_nutri, params=params, timeout=5)
-            # 응답 구조가 다를 수 있으니 확인 필요 (보통 response -> body -> items)
-            # 여기서는 바로 리스트가 오거나 body 안에 있다고 가정하고 처리
-            print(f"👉 [Nutri API Status]: {r.status_code}")
-            print(f"👉 [Nutri API Response]: {r.text[:500]}")
-            if r.status_code >= 400:
-                print(f"👉 [Nutri API] Server Error (400): {r.text[:100]}")
-                return None # 여기서 끝냄! (더 이상 진행 X)
-            data = r.json()
             
-            # 공공데이터 포털 응답 구조 파싱 (구조가 다양함, response/body/items/item 패턴 가정)
+            if r.status_code >= 400:
+                raise HTTPException(status_code=404, detail="External API Error (Nutri)")
+
+            data = r.json()
             items = []
             if "response" in data and "body" in data["response"]:
                 items = data["response"]["body"].get("items", [])
-            elif "body" in data: # 가끔 response 없이 바로 body인 경우
+            elif "body" in data:
                  items = data["body"].get("items", [])
             
             if items:
                 item = items[0]
-                # 요청하신 필드 매핑
                 nut_dict = {
-                    "serving_size": item.get("nutConSrtrQua"), # 영양성분함량기준량
-                    "sodium": item.get("nat"),                 # 나트륨
-                    "sugar": item.get("sugar"),                # 당류
-                    "sat_fat": item.get("fasat"),              # 포화지방산
-                    "trans_fat": item.get("fatrn"),            # 트랜스지방산
-                    "category_code": item.get("foodLv4Cd"),         # 대표식품코드
-                    "category_name" : item.get("foodLv4Nm")    # 대표식품코드명
-                    # "name": item.get("foodNm")               # 식품명
+                    "serving_size": item.get("nutConSrtrQua"),
+                    "sodium": item.get("nat"),
+                    "sugar": item.get("sugar"),
+                    "sat_fat": item.get("fasat"),
+                    "trans_fat": item.get("fatrn"),
+                    "category_code": item.get("foodLv4Cd"),
+                    "category_name" : item.get("foodLv4Nm")
                 }
-                print(f"👉 [Nutri] Name: {nut_dict.get('cat_name')}")
-        except Exception as e: print(f"Nutri API Error: {e}")
+            else:
+                raise HTTPException(status_code=404, detail="Product not found in External API (Nutri)")
+        
+        except HTTPException as he:
+            raise he # [중요] 404 재발생
+        except Exception as e: 
+            print(f"Nutri API Error: {e}")
 
-        # --- Step 5: 공공데이터포털 이미지 API ---
-        # 파라미터: serviceKey, prdlstReportNo, returnType=json
+        # --- Step 5: 이미지 (이미지는 없어도 404 안 띄우고 진행) ---
         image_url = None
         try:
-            params = {
-                "serviceKey": self.data_go_kr_key,
-                "prdlstReportNo": report_no,
-                "returnType": "json"
-            }
+            params = { "serviceKey": self.data_go_kr_key, "prdlstReportNo": report_no, "returnType": "json" }
             r = requests.get(self.base_url_img, params=params, timeout=5)
-
             data = r.json()
-            
-            # 구조: body -> items -> item -> imgurl1
             items = data.get("body", {}).get("items", [])
             if items:
                 new_img = items[0].get("item", {}).get("imgurl1")
-                if new_img:
-                    image_url = new_img # 이미지 있으면 덮어쓰기
+                if new_img: image_url = new_img
         except Exception as e: print(f"Img API Error: {e}")
-
 
         # --- 최종 DTO 조립 ---
         return RawProductAPIDTO(
@@ -236,24 +232,17 @@ class FoodRepository:
             name=product_name,
             brand=brand_name,
             report_no=report_no,
-            
             category_code=nut_dict.get("category_code"), 
             category_name=nut_dict.get("category_name"),
             image_url=image_url,
-            
-            # 영양성분 (Step 4)
             serving_size=nut_dict.get("serving_size", "0"),
             sodium_mg=nut_dict.get("sodium", "0"),
             sugar_g=nut_dict.get("sugar", "0"),
             sat_fat_g=nut_dict.get("sat_fat", "0"),
             trans_fat_g=nut_dict.get("trans_fat", "0"),
-            
-            # 포장재 (Step 2)
             packaging_material=pack_material,
-            
-            # 원재료 (Step 3)
             additives_cnt=calculated_additives_cnt
-        )
+        )   
 
     def _save_to_db_split(self, dto: RawProductAPIDTO):
         """[핵심] DTO 하나를 쪼개서 여러 테이블에 저장"""
