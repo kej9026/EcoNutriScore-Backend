@@ -105,16 +105,88 @@ class ScoreService:
         )
 
     def _normalize_material(self, material: Optional[str]) -> str:
-        """재질명 정규화"""
-        if not material: return "기타"
-        s = material.lower()
-        if "pet" in s: return "PET"
-        if "pp" in s: return "PP"
-        if "ps" in s: return "PS"
-        if "유리" in s or "glass" in s: return "유리"
-        if "알루" in s or "alumi" in s: return "알루미늄"
-        if "캔" in s: return "알루미늄" # 캔도 알루미늄으로 칠 때
-        return "복합재질"
+        """
+        재질명 정규화
+        - 한글/영어 동의어 처리 (폴리에틸렌 -> PE)
+        - 복합 재질 감지 (PET, PP -> 복합재질)
+        """
+        if not material: 
+            return "기타"
+        
+        s = material.lower().replace(" ", "") # 공백 제거하고 소문자로
+
+        # 1. '복합', 'other'가 명시적으로 있으면 바로 리턴
+        if "복합" in s or "other" in s:
+            return "복합재질"
+
+        # 2. 매핑 테이블 (검색 키워드 -> 표준 이름)
+        # 긴 단어부터 매칭되도록 순서는 크게 상관없으나, 중복 방지를 위해 집합 사용
+        keyword_map = {
+            # [PET]
+            "폴리에틸렌테레프탈레이트": "PET",
+            "pet": "PET",
+            "페트": "PET",
+            
+            # [PE] - 폴리에틸렌이 PET에 포함되지 않도록 주의 필요하나, 
+            # 보통 데이터가 '폴리에틸렌' 단독으로 오거나 'PE'로 옴
+            "hdpe": "PE",
+            "ldpe": "PE",
+            "lldpe": "PE",
+            "폴리에틸렌": "PE", 
+            "pe": "PE",
+            
+            # [PP]
+            "폴리프로필렌": "PP",
+            "pp": "PP",
+            
+            # [PS]
+            "폴리스티렌": "PS",
+            "ps": "PS",
+            
+            # [알루미늄/캔]
+            "알루미늄": "캔류",
+            "aluminum": "캔류",
+            "alu": "캔류",
+            "캔": "캔류",
+            
+            # [유리]
+            "유리": "유리",
+            "glass": "유리",
+            
+            # [종이]
+            "종이": "종이",
+            "펄프": "종이",
+            "paper": "종이"
+        }
+
+        found_materials = set() # 중복 없는 집합 (Set)
+
+        # 3. 매핑 테이블을 돌면서 포함된 재질 찾기
+        for keyword, standard_name in keyword_map.items():
+            if keyword in s:
+                # [예외 처리] 
+                # "폴리에틸렌테레프탈레이트"(PET) 안에 "폴리에틸렌"(PE) 글자가 들어있음.
+                # 이를 방지하기 위해 PET가 이미 발견되었다면 PE는 무시하는 로직 등 필요
+                
+                # 간단한 해결: "폴리에틸렌"을 찾았는데, 만약 "테레프탈레이트"도 문자열에 있다면?
+                # -> 이건 PET이므로 PE 추가를 안 함.
+                if standard_name == "PE" and "테레프탈레이트" in s:
+                    continue
+                
+                found_materials.add(standard_name)
+
+        # 4. 결과 판정
+        if len(found_materials) == 0:
+            return "기타"
+        
+        elif len(found_materials) == 1:
+            # 하나만 발견되면 그 재질 리턴 (예: "PE")
+            return list(found_materials)[0]
+        
+        else:
+            # 두 개 이상 발견되면 복합재질 (예: "뚜껑:PP, 본체:PET" -> {PP, PET} -> 복합재질)
+            # print(f"복합재질 감지됨: {material} -> {found_materials}")
+            return "복합재질"
 
     # =====================================================
     # [로직 3] 첨가물 점수 계산
