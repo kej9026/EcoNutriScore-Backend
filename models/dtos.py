@@ -196,3 +196,10 @@ class AuthResponse(BaseModel):
     login_id: str
     success: bool
     message: Optional[str] = None
+
+class FoodImageUpdateDTO(BaseModel):
+    """
+    이미지 업데이트용 DTO
+    구글 드라이브 공유 링크를 그대로 삽입(변환은 서비스에서)
+    """
+    image_url: str
