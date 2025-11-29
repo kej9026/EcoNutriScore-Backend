@@ -73,8 +73,6 @@ class RecyclingInfo(Base):
     recy_id = Column(Integer, primary_key=True, autoincrement=True)
     # [수정] ondelete="CASCADE" 추가
     barcode = Column(String(50), ForeignKey("foods.barcode", ondelete="CASCADE"), unique=True)
-    
-    recycling_rate = Column(Float)
     material = Column(String(50)) 
 
     food = relationship("Food", back_populates="recycling")

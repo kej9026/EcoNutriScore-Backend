@@ -93,7 +93,7 @@ class ScoreService:
         # 점수표
         score_map = {
             "유리": 95, "캔류": 95, "종이": 90, "PET": 85,
-            "PP": 60, "PS": 20, "복합재질": 10
+            "PP": 60, "PE": 50, "PS": 20, "복합재질": 10
         }
         # 매핑 안 되면 0점
         score = float(score_map.get(norm_mat, 0))

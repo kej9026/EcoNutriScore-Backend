@@ -138,7 +138,11 @@ class FoodRepository:
                 
             rows = r.json().get("I1250", {}).get("row", [])
             if rows:
-                pack_material = rows[0].get("FRMLC_MTRQLT", "기타")
+                pack_material = rows[0].get("FRMLC_MTRQLT")
+                if not pack_material or pack_material.strip() == "":
+                    print(f"❌ [Error] {report_no} 제품의 포장재질 정보가 비어있음.")
+                    raise HTTPException(status_code=422, detail="Essential Data Missing: Packaging Material is empty")
+                pack_material = pack_material.strip()
             else:
                 # 데이터 없으면 404 던짐
                 raise HTTPException(status_code=404, detail="Product not found in External API (I1250)")
@@ -281,7 +285,6 @@ class FoodRepository:
             new_recy = RecyclingInfo(
                 barcode=dto.barcode,
                 material=dto.packaging_material,
-                recycling_rate=0 
             )
             self.db.add(new_recy)
 
