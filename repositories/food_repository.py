@@ -108,7 +108,7 @@ class FoodRepository:
             if not row_c005:
                 # 데이터 없으면 404 던짐
                 raise HTTPException(status_code=404, detail="Product not found in External API (C005)")
-            
+            row_c005.sort(key=lambda x: x.get("PRDLST_REPORT_NO", ""), reverse=True)
             base_info = row_c005[0]
             report_no = base_info.get("PRDLST_REPORT_NO")
             product_name = base_info.get("PRDLST_NM")
