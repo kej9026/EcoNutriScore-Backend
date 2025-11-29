@@ -43,7 +43,8 @@ class RawProductAPIDTO(BaseModel):
     # 포장/첨가물
     packaging_material: Optional[str] = None
     additives_cnt: Optional[int] = None
-
+    raw_materials: Optional[str] = None
+    additive_list_str: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, extra='ignore')
 
 

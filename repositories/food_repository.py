@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql import text
 from redis import Redis
 from dotenv import load_dotenv
-from models.models import Food, NutritionFact, RecyclingInfo, Additive
+from models.models import Food, NutritionFact, RecyclingInfo, Ingredient
 from models.dtos import RawProductAPIDTO 
 from database import get_db 
 from dotenv import load_dotenv
@@ -165,7 +165,7 @@ class FoodRepository:
             if rows:
                 raw_materials = rows[0].get("RAWMTRL_NM")
                 if raw_materials:
-                    calculated_additives_cnt = self.additive_service.calculate_count(raw_materials)
+                    calculated_additives_cnt, additive_list_str = self.additive_service.calculate_count(raw_materials)
             else:
                 raise HTTPException(status_code=404, detail="Product not found in External API (C002)")
         
@@ -241,7 +241,9 @@ class FoodRepository:
             sat_fat_g=nut_dict.get("sat_fat", "0"),
             trans_fat_g=nut_dict.get("trans_fat", "0"),
             packaging_material=pack_material,
-            additives_cnt=calculated_additives_cnt
+            additives_cnt=calculated_additives_cnt,
+            additive_list_str=additive_list_str,
+            raw_materials=raw_materials
         )   
 
     def _save_to_db_split(self, dto: RawProductAPIDTO):
@@ -283,6 +285,14 @@ class FoodRepository:
             )
             self.db.add(new_recy)
 
+            new_ing = Ingredient(
+                barcode=dto.barcode,
+                name=dto.name,  # 제품명과 동일하게 넣거나 생략 가능 (설계에 따라 다름)
+                raw_materials=dto.raw_materials,       # 원재료명 전체 텍스트
+                additives_list=dto.additive_list_str   # 분석된 첨가물 목록 문자열
+            )
+            self.db.add(new_ing)
+
             self.db.commit()
             print(f"[Repo] Saved split data for {dto.name}")
 
@@ -295,7 +305,7 @@ class FoodRepository:
         """JOIN된 객체 -> DTO 변환"""
         nut = entity.nutrition
         recy = entity.recycling
-
+        ing = entity.ingredients[0] if entity.ingredients else None
         return RawProductAPIDTO(
             barcode=entity.barcode,
             name=entity.name,
@@ -314,7 +324,8 @@ class FoodRepository:
             sat_fat_g=str(nut.sat_fat_g) if nut else "0",
             trans_fat_g=str(nut.trans_fat_g) if nut else "0",
             additives_cnt=nut.additives_cnt if nut else 0,
-            
+            raw_materials=ing.raw_materials if ing else None,
+            additive_list_str=ing.additives_list if ing else None,
             packaging_material=recy.material if recy else None
         )
 

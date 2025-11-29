@@ -89,7 +89,8 @@ class Ingredient(Base):
     # [수정] ondelete="CASCADE" 추가
     barcode = Column(String(50), ForeignKey("foods.barcode", ondelete="CASCADE"))
     name = Column(String(300))
-
+    raw_materials = Column(Text, nullable=True)
+    additives_list = Column(Text, nullable=True)
     food = relationship("Food", back_populates="ingredients")
 
 # =========================================================
