@@ -192,7 +192,7 @@ class ScoreService:
     # [로직 3] 첨가물 점수 계산
     # =====================================================
     def _calc_additives_score(self, raw: RawProductAPIDTO) -> AdditivesDetail:
-        count = int(raw.additives_cntcnt) if raw.additives_cnt else 0
+        count = int(raw.additives_cnt) if raw.additives_cnt else 0
         # 개당 10점 감점 (100점 만점)
         score = float(max(0, 100 - count * 10))
         
