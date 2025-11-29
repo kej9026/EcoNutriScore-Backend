@@ -28,7 +28,7 @@ class FoodRecommendationService:
         candidates = self.food_repo.find_alternatives(
             category_code=cat_code,
             exclude_report_no=req.report_no,
-            limit=50 
+            limit=100  # [팁] 중복 제거하면 개수가 줄어드니까 넉넉하게 조회 (50 -> 100)
         )
         if not candidates: return []
 
@@ -38,12 +38,12 @@ class FoodRecommendationService:
         w_nut = req.weights.nutrition_weight
         standard_score = req.total_score
 
-        # 5. 랭킹 산정
-        ranked_list = []
-        
+        # 5. [핵심 수정] 중복 제거를 위한 딕셔너리 (Key: 품목보고번호, Value: 데이터)
+        unique_candidates = {}
+
         for product in candidates:
             
-            # [수정] ScoreService 호출 없이, product 안에 있는 DB 점수 바로 사용!
+            # 점수 계산
             total_score = (
                 (product.base_packaging_score * w_pkg) + 
                 (product.base_additives_score * w_add) + 
@@ -54,29 +54,51 @@ class FoodRecommendationService:
             if total_score <= standard_score:
                 continue
 
-            grade = self._calculate_grade_letter(float(total_score))
+            # [중복 방지 로직]
+            report_no = product.prdlst_report_no
             
+            # 이미 저장된 같은 제품(report_no)이 있는지 확인
+            if report_no in unique_candidates:
+                # 있다면, 현재 점수가 더 높을 때만 교체 (더 좋은 옵션 선택)
+                if total_score > unique_candidates[report_no]['total_score']:
+                    unique_candidates[report_no] = {
+                        'product': product,
+                        'total_score': total_score
+                    }
+            else:
+                # 없으면 새로 등록
+                unique_candidates[report_no] = {
+                    'product': product,
+                    'total_score': total_score
+                }
+
+        # 6. DTO 변환 및 리스트 생성
+        ranked_list = []
+        
+        for item in unique_candidates.values():
+            product = item['product']
+            final_score = float(item['total_score'])
+            grade = self._calculate_grade_letter(final_score)
+
             result_dto = RecommendationResultDTO(
                 barcode=product.barcode,
                 name=product.name,
                 image_url=product.image_url,
                 brand=product.brand,
                 
-                # [수정] DB에 있는 base 점수에 가중치를 곱해서 보여줌
+                # 상세 점수 (가중치 적용된 값)
                 nutrition_score=product.base_nutrition_score * w_nut,
                 packaging_score=product.base_packaging_score * w_pkg,
                 additives_score=product.base_additives_score * w_add,
                 
-                total_score=float(total_score),
+                total_score=final_score,
                 grade=grade
             )
-            
             ranked_list.append(result_dto)
 
-        # 6. 정렬 (높은 순)
+        # 7. 정렬 (높은 순) 및 Top 5 반환
         ranked_list.sort(key=lambda dto: dto.total_score, reverse=True)
 
-        # 7. Top 5 반환
         return ranked_list[:5]
 
     def _calculate_grade_letter(self, score: float) -> str:

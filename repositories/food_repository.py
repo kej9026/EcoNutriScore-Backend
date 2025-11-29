@@ -362,7 +362,7 @@ class FoodRepository:
         print("❌ [Repo] DB에 없음!")
         return None
     
-    def find_alternatives(self, category_code: str, exclude_report_no: str, limit: int = 5) -> List[RawProductAPIDTO]:
+    def find_alternatives(self, category_code: str, exclude_report_no: str, limit: int = 5) -> List[Food]:
         """
         같은 카테고리(category_code)의 다른 제품들을 조회
         - exclude_report_no: 현재 보고 있는 제품은 제외
@@ -375,7 +375,7 @@ class FoodRepository:
             Food.prdlst_report_no != exclude_report_no
         ).limit(limit).all()
 
-        return [self._entity_to_dto(f) for f in foods]
+        return foods
     
     #관리자용 이미지 업데이트
     def update_food_image(self, barcode: str, new_url: str) -> bool:
