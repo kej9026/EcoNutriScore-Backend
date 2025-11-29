@@ -72,7 +72,8 @@ class AdditivesDetail(BaseModel):
     """첨가물 점수 상세"""
     score: float
     count: int
-    risk_level: str = "Unknown" # 필요시 사용
+    raw_materials: Optional[str] = None
+    additive_list_str: Optional[str] = None
 
 class AnalysisScoresDTO(BaseModel):
     """

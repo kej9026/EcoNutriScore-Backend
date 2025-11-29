@@ -26,7 +26,7 @@ class ScoreService:
         # 2. 각 분야별 점수 계산
         nut_detail = self._calc_nutrition_score(raw, scale, serving_ml)
         pkg_detail = self._calc_packaging_score(raw.packaging_material)
-        add_detail = self._calc_additives_score(raw.additives_cnt)
+        add_detail = self._calc_additives_score(raw)
 
         # 3. 결과 DTO 조립
         return AnalysisScoresDTO(
@@ -191,15 +191,16 @@ class ScoreService:
     # =====================================================
     # [로직 3] 첨가물 점수 계산
     # =====================================================
-    def _calc_additives_score(self, cnt: Optional[int]) -> AdditivesDetail:
-        count = int(cnt) if cnt else 0
+    def _calc_additives_score(self, raw: RawProductAPIDTO) -> AdditivesDetail:
+        count = int(raw.additives_cntcnt) if raw.additives_cnt else 0
         # 개당 10점 감점 (100점 만점)
         score = float(max(0, 100 - count * 10))
         
         return AdditivesDetail(
             score=score,
             count=count,
-            risk_level="N/A" # 필요시 로직 추가
+            raw_materials = raw.raw_materials,
+            additive_list_str = raw.additive_list_str
         )
 
     # =====================================================
