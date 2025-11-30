@@ -9,3 +9,8 @@ numpy
 redis
 pyzbar
 python-multipart
+passlib[bcrypt]
+argon2-cffi
+cryptography
+pillow
+mysql-connector-python
