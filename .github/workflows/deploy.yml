@@ -19,4 +19,4 @@ jobs:
             git pull origin main               # 1. 코드 땡겨오기
             source venv/bin/activate           # 2. 가상환경 켜기
             pip install -r requirement.txt    # 3. 라이브러리 설치
-            sudo systemctl restart my-fastapi  # 4. 서버 재시작
+            sudo systemctl restart capstone  # 4. 서버 재시작
