@@ -1,0 +1,22 @@
+name: Deploy to Ubuntu
+
+on:
+  push:
+    branches: [ main ]  # main 브랜치에 푸시하면 발동
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH로 서버 접속해서 배포 스크립트 실행
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}     # 우분투 IP
+          username: ${{ secrets.SERVER_USER }} # 우분투 아이디 (ex: ubuntu)
+          key: ${{ secrets.SSH_KEY }}          # PEM 키 내용
+          script: |
+            cd /home/azureuser/EcoNutriScore-Backend
+            git pull origin main               # 1. 코드 땡겨오기
+            source venv/bin/activate           # 2. 가상환경 켜기
+            pip install -r requirements.txt    # 3. 라이브러리 설치
+            sudo systemctl restart my-fastapi  # 4. 서버 재시작
