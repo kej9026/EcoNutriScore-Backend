@@ -5,3 +5,6 @@ pymysql
 requests
 python-dotenv
 gunicorn
+numpy
+redis
+pyzbar
