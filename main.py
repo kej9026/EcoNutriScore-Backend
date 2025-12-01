@@ -34,7 +34,7 @@ app.include_router(food_router.router)
 app.include_router(history_router.router)
 app.include_router(recommendation_router.router)
 app.include_router(user_router.router)
-app.mount("/static", StaticFiles(directory="images"), name="static")
+
 @app.get("/")
 def index():
     return {"message": "EcoNutri API Service"}
