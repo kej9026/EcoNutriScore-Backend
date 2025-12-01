@@ -377,23 +377,3 @@ class FoodRepository:
 
         return foods
     
-    #관리자용 이미지 업데이트
-    def update_food_image(self, barcode: str, new_url: str) -> bool:
-        try:
-            # 1. DB 업데이트
-            result = self.db.query(Food).filter(Food.barcode == barcode).update(
-                {Food.image_url: new_url}
-            )
-            self.db.commit()
-            
-            if result > 0:
-                # 2. 중요: Redis 캐시 삭제 (그래야 새 이미지 반영됨)
-                self.redis.delete(f"product:{barcode}")
-                print(f"[Admin] Image updated for {barcode}")
-                return True
-            return False
-            
-        except Exception as e:
-            self.db.rollback()
-            print(f"[Admin] Update Error: {e}")
-            return False

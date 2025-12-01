@@ -93,7 +93,7 @@ class ScoreService:
         # 점수표
         score_map = {
             "유리": 95, "캔류": 95, "종이": 90, "PET": 85,
-            "PP": 60, "PE": 50, "PS": 20, "복합재질": 10
+            "PP": 60, "PE": 50, "합성수지": 40, "비닐": 40, "PS": 20, "복합재질": 10
         }
         # 매핑 안 되면 0점
         score = float(score_map.get(norm_mat, 0))
@@ -157,7 +157,11 @@ class ScoreService:
             # [종이]
             "종이": "종이",
             "펄프": "종이",
-            "paper": "종이"
+            "paper": "종이",
+
+            "합성수지재": "합성수지",
+            "합성수지제": "합성수지",
+            "비닐": "비닐"
         }
 
         found_materials = set() # 중복 없는 집합 (Set)

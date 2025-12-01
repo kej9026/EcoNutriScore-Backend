@@ -228,3 +228,4 @@ init.sql
 cache.py
 additives.csv
 upload_csv.py
+image/
